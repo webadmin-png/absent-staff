@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Absensi</title>
+  <style>
+    /* ═══════════════════════════════════
+       FIX: Google Apps Script iframe wrapper
+       Forces the parent iframe to behave responsively
+    ═══════════════════════════════════ */
+    html, body {
+      width: 100% !important;
+      overflow-x: hidden !important;
+    }
+    :root {
+      --primary      : #1D9E75;
+      --primary-dark : #0F6E56;
+      --bg-mobile    : #f0f2f5;
+      --bg-desktop   : #e4ede9;
+      --card         : #ffffff;
+      --border       : #e0e0e0;
+      --text         : #1a1a1a;
+      --muted        : #777;
+      --red          : #c62828;
+      --green        : #2e7d32;
+      --orange       : #e65100;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg-mobile);
+      color: var(--text);
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+
+    /* ═══════════════════════════════════
+       LOADING & ERROR (berdiri sendiri)
+    ═══════════════════════════════════ */
+    #loading {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--muted);
+    }
+    .spin {
+      width: 36px; height: 36px;
+      border: 3px solid #e0e0e0; border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+      margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #pg-error { padding: 24px 16px; max-width: 540px; margin: 0 auto; }
+
+    /* ═══════════════════════════════════
+       LAYOUT UTAMA
+    ═══════════════════════════════════ */
+    #main {
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 0;
+      width: 100%;
+      max-width: 540px;
+      margin: 0 auto;
+    }
+
+    /* ═══════════════════════════════════
+       CARD
+    ═══════════════════════════════════ */
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 18px 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    /* ═══════════════════════════════════
+       PROFILE CARD (mobile = horizontal)
+    ═══════════════════════════════════ */
+    .avatar {
+      display: none; /* hidden on mobile */
+    }
+    .hdr-top  { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+    .hdr-name { font-size: clamp(16px, 4vw, 18px); font-weight: 700; line-height: 1.2; }
+    .badge {
+      flex-shrink: 0;
+      padding: 3px 12px; border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+      background: #e0f2ea; color: var(--primary-dark);
+    }
+    .hdr-email { font-size: 13px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+    .hdr-date  { font-size: 13px; color: var(--muted); margin-top: 6px; }
+    .hdr-plan  {
+      display: inline-block; margin-top: 8px;
+      padding: 4px 12px; border-radius: 20px;
+      background: #0F6E56; color: #fff;
+      font-size: 13px; font-weight: 600; letter-spacing: .3px;
+    }
+    .hdr-plan.empty {
+      background: #f0f2f5; color: var(--muted); font-weight: 400;
+    }
+
+    /* ═══════════════════════════════════
+       ALERTS
+    ═══════════════════════════════════ */
+    .alert {
+      padding: 13px 16px; border-radius: 12px;
+      font-size: 14px; line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .alert-err  { background: #fde8e8; color: var(--red); }
+    .alert-ok   { background: #e8f5e9; color: var(--green); }
+
+    /* ═══════════════════════════════════
+       BUTTONS
+    ═══════════════════════════════════ */
+    .btn {
+      display: block; width: 100%; padding: 14px;
+      border: none; border-radius: 11px;
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: opacity .15s, transform .1s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .btn + .btn { margin-top: 10px; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { opacity: .86; }
+    .btn:active:not(:disabled) { transform: scale(.98); }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-outline {
+      background: white; color: var(--primary);
+      border: 2px solid var(--primary);
+    }
+    .btn-ghost { background: #f0f2f5; color: var(--muted); }
+
+    /* ═══════════════════════════════════
+       SUMMARY ROWS
+    ═══════════════════════════════════ */
+    .sum-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid #f2f2f2;
+    }
+    .sum-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .sum-row:first-child { padding-top: 0; }
+    .sum-icon  { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+    .sum-label { flex: 1; font-size: 14px; color: var(--muted); }
+    .sum-time  { font-size: 14px; font-weight: 600; color: var(--text); }
+    .sum-time.empty { color: #ccc; font-weight: 400; }
+
+    /* ═══════════════════════════════════
+       FORM FIELDS
+    ═══════════════════════════════════ */
+    .field { margin-bottom: 14px; }
+    .field:last-child { margin-bottom: 0; }
+    label {
+      display: block; font-size: 13px;
+      font-weight: 500; color: var(--muted); margin-bottom: 5px;
+    }
+    select, input[type=time], input[type=text] {
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      font-size: 16px; color: var(--text); background: white;
+      -webkit-appearance: none; appearance: none;
+    }
+    select:focus, input[type=time]:focus, input[type=text]:focus {
+      outline: none; border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(29,158,117,.15);
+    }
+    textarea {
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      font-size: 15px; color: var(--text); background: white;
+      resize: vertical; min-height: 72px;
+      font-family: inherit; line-height: 1.5;
+    }
+    textarea:focus {
+      outline: none; border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(29,158,117,.15);
+    }
+    textarea.error {
+      border-color: var(--red);
+      box-shadow: 0 0 0 3px rgba(198,40,40,.12);
+    }
+    .divider { border: none; border-top: 1px solid #f0f0f0; margin: 16px 0; }
+
+    /* ═══════════════════════════════════
+       ABSENT STATE
+    ═══════════════════════════════════ */
+    .absent-wrap        { text-align: center; padding: 12px 0; }
+    .absent-icon        { font-size: 44px; margin-bottom: 10px; }
+    .absent-status      { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .absent-note        { font-size: 14px; color: var(--muted); line-height: 1.6; }
+    .absent-keterangan  {
+      font-size: 13px; color: var(--muted); margin-top: 8px;
+      font-style: italic; line-height: 1.5; word-break: break-word;
+    }
+
+    /* ═══════════════════════════════════
+       LOCK BANNER
+    ═══════════════════════════════════ */
+    .lock-banner {
+      text-align: center; padding: 14px 16px;
+      background: #fff3e0; border-radius: 11px;
+      color: var(--orange); font-size: 14px; font-weight: 600;
+    }
+
+    /* ═══════════════════════════════════
+       EDITABLE SUMMARY ROWS
+    ═══════════════════════════════════ */
+    .sum-row.editable {
+      cursor: pointer; border-radius: 8px;
+      margin: 0 -8px; padding-left: 8px; padding-right: 8px;
+      transition: background .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .sum-row.editable:hover { background: #f5f5f5; }
+    .sum-row.editable:active { background: #eee; }
+    .sum-edit { font-size: 12px; color: var(--primary); margin-left: 6px; flex-shrink: 0; }
+    .edit-hint {
+      font-size: 12px; color: var(--muted); text-align: center;
+      margin-top: 10px; margin-bottom: -4px;
+    }
+
+    /* ═══════════════════════════════════
+       DEVICE STATUS CHECKBOXES
+    ═══════════════════════════════════ */
+    .device-section {
+      margin-top: 14px; padding: 12px 14px;
+      background: #f8fdfb; border: 1.5px solid #c8e8dc;
+      border-radius: 10px;
+    }
+    .device-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      color: var(--primary-dark); text-transform: uppercase; margin-bottom: 10px;
+    }
+    .device-checks { display: flex; gap: 10px; }
+    .check-item {
+      flex: 1; display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; border: 1.5px solid var(--border);
+      border-radius: 10px; cursor: pointer;
+      font-size: 14px; font-weight: 600; background: white;
+      transition: border-color .15s, background .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .check-item input[type=checkbox] {
+      width: 18px; height: 18px; flex-shrink: 0;
+      accent-color: var(--primary); cursor: pointer;
+    }
+    .check-item:has(input:checked) {
+      border-color: var(--primary); background: #eaf6f1;
+    }
+
+    .late-note-section {
+      margin-top: 14px; padding: 12px 14px;
+      background: #fff8e1; border: 1.5px solid #ffe082;
+      border-radius: 10px;
+    }
+    .late-note-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      color: var(--orange); text-transform: uppercase; margin-bottom: 8px;
+    }
+
+    .mt14 { margin-top: 14px; }
+    .hidden { display: none !important; }
+
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE — SMALL PHONES (≤ 360px)
+    ═══════════════════════════════════════════════════════ */
+    @media (max-width: 360px) {
+      #main { padding: 8px; }
+      .card { padding: 14px 12px; border-radius: 14px; }
+      .btn { padding: 12px; font-size: 14px; }
+      .absent-icon { font-size: 36px; }
+      .absent-status { font-size: 19px; }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE — TABLET (≥ 600px)
+    ═══════════════════════════════════════════════════════ */
+    @media (min-width: 600px) {
+      body { padding: 24px 16px; }
+
+      #main {
+        max-width: 560px;
+        padding: 0;
+      }
+
+      .card { padding: 22px 20px; border-radius: 18px; }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE — DESKTOP (≥ 768px)
+    ═══════════════════════════════════════════════════════ */
+    @media (min-width: 768px) {
+
+      body { background: var(--bg-desktop); padding: 40px 24px 60px; }
+
+      #main {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 20px;
+        max-width: 820px;
+        padding: 0;
+      }
+
+      /* ── Kolom kiri: profil ── */
+      #col-left {
+        width: 240px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 40px;
+      }
+
+      #col-left .card {
+        text-align: center;
+        padding: 28px 20px;
+        margin-bottom: 0;
+      }
+
+      /* Avatar lingkaran dengan inisial */
+      .avatar {
+        display: flex;
+        align-items: center; justify-content: center;
+        width: 64px; height: 64px; border-radius: 50%;
+        background: var(--primary);
+        color: white; font-size: 22px; font-weight: 700;
+        margin: 0 auto 14px;
+      }
+
+      /* Override horizontal layout → vertikal di desktop */
+      .hdr-top {
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .hdr-name  { font-size: 17px; }
+      .hdr-email { font-size: 12px; }
+      .hdr-date  { font-size: 12px; }
+
+      /* ── Kolom kanan: konten ── */
+      #col-right { flex: 1; min-width: 0; }
+
+      .card { border-radius: 18px; }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       RESPONSIVE — LARGE DESKTOP (≥ 1024px)
+    ═══════════════════════════════════════════════════════ */
+    @media (min-width: 1024px) {
+      #main { max-width: 900px; gap: 28px; }
+      #col-left { width: 260px; }
+      #col-left .card { padding: 32px 24px; }
+      .avatar { width: 72px; height: 72px; font-size: 24px; }
+      .card { padding: 24px; }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       LANDSCAPE PHONE
+    ═══════════════════════════════════════════════════════ */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #loading { padding: 40px 20px; }
+      .absent-icon { font-size: 32px; margin-bottom: 6px; }
+      .absent-wrap { padding: 6px 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spin"></div>
+    Memuat data absensi…
+  </div>
+
+  <!-- Fatal error -->
+  <div id="pg-error" class="hidden">
+    <div class="card">
+      <div class="alert alert-err" id="pg-error-msg"></div>
+    </div>
+  </div>
+
+  <!-- ── Layout utama (2 kolom di desktop, 1 kolom di HP) ── -->
+  <div id="main" class="hidden">
+
+    <!-- ── Kolom kiri: profil ── -->
+    <div id="col-left">
+      <div class="card">
+        <div class="avatar" id="u-avatar"></div>
+        <div class="hdr-top">
+          <div class="hdr-name" id="u-nama"></div>
+          <span class="badge" id="u-divisi"></span>
+        </div>
+        <div class="hdr-email" id="u-email"></div>
+        <div class="hdr-date"  id="u-date"></div>
+        <div class="hdr-plan empty" id="u-plan">Belum ada plan</div>
+      </div>
+    </div>
+
+    <!-- ── Kolom kanan: konten ── -->
+    <div id="col-right">
+
+      <!-- Inline notices -->
+      <div id="n-ok"  class="alert alert-ok  hidden">✅ Berhasil dicatat.</div>
+      <div id="n-err" class="alert alert-err hidden"></div>
+
+      <!-- PLAN CARD — selalu tampil kecuali locked -->
+      <div id="plan-card" class="card hidden">
+        <div class="field" style="margin-bottom:10px">
+          <label>Plan Jam Kerja Hari Ini</label>
+          <select id="sel-plan"></select>
+        </div>
+        <button class="btn btn-outline" id="btn-plan" onclick="submitPlan()">💾&nbsp; Simpan Plan</button>
+      </div>
+
+      <!-- STATE: blank -->
+      <div id="state-blank" class="card hidden">
+        <button class="btn btn-primary" onclick="goHadir()">🟢&nbsp; Saya Hadir</button>
+        <button class="btn btn-outline" style="margin-top:10px" onclick="goTidakHadir()">📝&nbsp; Tidak Hadir</button>
+      </div>
+
+      <!-- STATE: nothadir -->
+      <div id="state-nothadir" class="card hidden">
+        <div class="field">
+          <label>Alasan Tidak Hadir</label>
+          <select id="sel-status">
+            <option value="Izin">Izin</option>
+            <option value="Sakit">Sakit</option>
+            <option value="Alpha">Alpha</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Keterangan</label>
+          <textarea id="inp-keterangan" placeholder="Contoh: demam sejak kemarin, sudah ke dokter…" rows="3"></textarea>
+        </div>
+        <button class="btn btn-primary" id="btn-nothadir" onclick="submitTidakHadir()">Kirim</button>
+        <button class="btn btn-ghost" style="margin-top:10px" onclick="showState('blank')">Batal</button>
+      </div>
+
+      <!-- STATE: absent -->
+      <div id="state-absent" class="card hidden">
+        <div class="absent-wrap">
+          <div class="absent-icon"       id="absent-icon"></div>
+          <div class="absent-status"     id="absent-status"></div>
+          <div class="absent-note">Sudah tercatat.</div>
+          <div class="absent-keterangan" id="absent-keterangan"></div>
+        </div>
+        <button class="btn btn-outline mt14" onclick="goEditAbsent()">✏️&nbsp; Ubah Status</button>
+      </div>
+
+      <!-- STATE: stamping -->
+      <div id="state-stamping" class="hidden">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:0 0 8px">Actual Below</div>
+        <div class="card">
+          <div id="summary"></div>
+        </div>
+        <div class="card">
+        <div class="field">
+          <label>Aksi</label>
+          <select id="sel-action" onchange="onActionChange()">
+            <option value="masuk">Masuk</option>
+            <option value="ist1Mulai">Istirahat 1 Mulai</option>
+            <option value="ist1Selesai">Istirahat 1 Selesai</option>
+            <option value="ist2Mulai">Istirahat 2 Mulai</option>
+            <option value="ist2Selesai">Istirahat 2 Selesai</option>
+            <option value="pulang">Pulang</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Jam <span style="font-weight:400;font-size:12px">(format 24 jam)</span></label>
+          <input type="time" id="inp-time" value="07:30" required>
+        </div>
+        <!-- Device status — muncul hanya saat masuk / pulang -->
+        <div id="device-section" class="device-section hidden">
+          <div class="device-label" id="device-title">Device Status</div>
+          <div class="device-checks">
+            <label class="check-item">
+              <input type="checkbox" id="chk-ups" checked>
+              <span>UPS</span>
+            </label>
+            <label class="check-item">
+              <input type="checkbox" id="chk-pc" checked>
+              <span>PC</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="late-note-section" class="late-note-section hidden">
+          <div class="late-note-title" id="late-note-title">Alasan</div>
+          <textarea id="inp-late-note" placeholder="Tuliskan alasan…" rows="2"></textarea>
+        </div>
+
+        <button class="btn btn-primary mt14" id="btn-stamp" onclick="submitStamp()">Catat</button>
+        </div><!-- /card -->
+      </div><!-- /state-stamping -->
+
+      <!-- STATE: locked -->
+      <div id="state-locked" class="card hidden">
+        <div id="summary-locked"></div>
+        <div class="lock-banner mt14">🔒 Data terkunci — 30 menit setelah jam pulang</div>
+      </div>
+
+    </div><!-- /col-right -->
+  </div><!-- /main -->
+
+<script>
+  var _data = null;
+
+  var ACTIONS = [
+    { key: 'masuk',       label: 'Masuk',          field: 'masuk'       },
+    { key: 'ist1Mulai',   label: 'Ist. 1 Mulai',   field: 'ist1Mulai'   },
+    { key: 'ist1Selesai', label: 'Ist. 1 Selesai', field: 'ist1Selesai' },
+    { key: 'ist2Mulai',   label: 'Ist. 2 Mulai',   field: 'ist2Mulai'   },
+    { key: 'ist2Selesai', label: 'Ist. 2 Selesai', field: 'ist2Selesai' },
+    { key: 'pulang',      label: 'Pulang',          field: 'pulang'      },
+  ];
+
+  // ── Boot ─────────────────────────────────────────────────────────────
+  window.onload = function () {
+    google.script.run
+      .withSuccessHandler(onLoaded)
+      .withFailureHandler(fatalError)
+      .getDataHariIni();
+  };
+
+  // ── Data diterima dari server ─────────────────────────────────────────
+  function onLoaded(d) {
+    _data = d;
+    hide('loading');
+    show('main');
+
+    setText('u-avatar', initials(d.nama));
+    setText('u-nama',   d.nama);
+    setText('u-divisi', d.divisi);
+    setText('u-email',  d.email);
+    setText('u-date',   d.hari + ', ' + d.tanggal);
+
+    var planEl = el('u-plan');
+    if (d.plan) {
+      setText('u-plan', '🕐 ' + d.plan);
+      planEl.classList.remove('empty');
+    } else {
+      setText('u-plan', 'Belum ada plan');
+      planEl.classList.add('empty');
+    }
+
+    applyState(d);
+  }
+
+  // ── Isi dropdown plan dari opsi server ───────────────────────────────
+  function renderPlanCard(d) {
+    var sel = el('sel-plan');
+    sel.innerHTML = '';
+    var opts = d.planOptions || [];
+    opts.forEach(function (opt) {
+      var o = document.createElement('option');
+      o.value = opt; o.textContent = opt;
+      if (opt === d.plan) o.selected = true;
+      sel.appendChild(o);
+    });
+    // Tampilkan card hanya jika tidak locked dan ada opsi
+    if (!d.locked && opts.length > 0) show('plan-card');
+    else hide('plan-card');
+  }
+
+  // ── Tentukan & tampilkan state ────────────────────────────────────────
+  function applyState(d) {
+    hide('n-ok'); hide('n-err');
+    renderPlanCard(d);
+    var s = d.fields.status;
+
+    if (!s) {
+      showState('blank');
+
+    } else if (s === 'Izin' || s === 'Sakit' || s === 'Alpha') {
+      hide('plan-card');
+      var icons = { Izin: '📝', Sakit: '🤒', Alpha: '❌' };
+      setText('absent-icon',       icons[s] || '📝');
+      setText('absent-status',     s);
+      var ket = (d.fields.keterangan || '').trim();
+      setText('absent-keterangan', ket ? '"' + ket + '"' : '');
+      showState('absent');
+
+    } else if (s === 'Hadir' && d.locked) {
+      renderSummary('summary-locked', d.fields, false);
+      showState('locked');
+
+    } else {
+      renderSummary('summary', d.fields, true);
+      setDefaultAction(d.fields);
+      prefillTime();
+      onActionChange();
+      showState('stamping');
+    }
+  }
+
+  // ── Render ringkasan aksi ─────────────────────────────────────────────
+  // editable = true → rows are clickable for editing (stamping state)
+  function renderSummary(id, fields, editable) {
+    var html = '';
+    ACTIONS.forEach(function (a) {
+      var val    = fields[a.field];
+      var filled = val && val !== '';
+      var cls    = 'sum-row' + (editable && filled ? ' editable' : '');
+      var tap    = editable && filled
+        ? ' onclick="editRow(\'' + a.key + '\',\'' + (val || '') + '\')"'
+        : '';
+      html +=
+        '<div class="' + cls + '"' + tap + '>' +
+          '<span class="sum-icon">' + (filled ? '✅' : '—') + '</span>' +
+          '<span class="sum-label">' + a.label + '</span>' +
+          '<span class="sum-time' + (filled ? '' : ' empty') + '">' + (val || '—') + '</span>' +
+          (editable && filled ? '<span class="sum-edit">✏️</span>' : '') +
+        '</div>';
+    });
+    if (editable) html += '<div class="edit-hint">Ketuk baris untuk mengedit waktu</div>';
+    if (fields.catatanTelat) {
+      html += '<div style="margin-top:10px;padding:8px 10px;background:#fff8e1;border-radius:8px;font-size:13px;color:#5f4200;">' +
+        '<span style="font-weight:600;">⚠️ Telat: </span>' +
+        fields.catatanTelat.replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+      '</div>';
+    }
+    if (fields.catatanPulangAwal) {
+      html += '<div style="margin-top:10px;padding:8px 10px;background:#fff8e1;border-radius:8px;font-size:13px;color:#5f4200;">' +
+        '<span style="font-weight:600;">⚠️ Pulang Awal: </span>' +
+        fields.catatanPulangAwal.replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+      '</div>';
+    }
+    el(id).innerHTML = html;
+  }
+
+  // ── Pilih aksi berikutnya yang belum terisi ───────────────────────────
+  function setDefaultAction(fields) {
+    var next = 'pulang';
+    for (var i = 0; i < ACTIONS.length; i++) {
+      if (!fields[ACTIONS[i].field]) { next = ACTIONS[i].key; break; }
+    }
+    el('sel-action').value = next;
+  }
+
+  // ── Pre-fill jam dengan waktu sekarang ───────────────────────────────
+  function prefillTime() {
+    var now = new Date();
+    el('inp-time').value =
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+  }
+
+  // ── Update device section saat action berubah ────────────────────────
+  function onActionChange() {
+    var action = el('sel-action').value;
+    var sec    = el('device-section');
+    if (action === 'masuk') {
+      setText('device-title', 'Konfirmasi Device ON');
+      el('chk-ups').checked = true;
+      el('chk-pc').checked  = true;
+      sec.classList.remove('hidden');
+    } else if (action === 'pulang') {
+      setText('device-title', 'Konfirmasi Device OFF');
+      el('chk-ups').checked = true;
+      el('chk-pc').checked  = true;
+      sec.classList.remove('hidden');
+    } else {
+      sec.classList.add('hidden');
+    }
+    checkLateNote();
+  }
+
+  // ── "Saya Hadir" → pindah ke form stamp ──────────────────────────────
+  function goHadir() {
+    renderSummary('summary', _data.fields, true);
+    el('sel-action').value = 'masuk';
+    prefillTime();
+    onActionChange();
+    showState('stamping');
+  }
+
+  // ── "Tidak Hadir" → form alasan ──────────────────────────────────────
+  function goTidakHadir() { showState('nothadir'); }
+
+  // ── "Ubah Status" dari state absent → kembali ke pilihan awal ────────
+  function goEditAbsent() { showState('blank'); }
+
+  // ── Klik baris summary → pre-fill form untuk edit waktu ──────────────
+  function editRow(actionKey, currentTime) {
+    el('sel-action').value = actionKey;
+    el('inp-time').value   = currentTime || '';
+    onActionChange();
+    el('sel-action').focus();
+  }
+
+  // ── Auto-format input jam: "0730" → "07:30" saat mengetik ───────────
+  document.addEventListener('DOMContentLoaded', function () {
+    var inp = el('inp-time');
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+      var raw = inp.value.replace(/[^0-9]/g, '').substring(0, 4);
+      if (raw.length >= 3) {
+        inp.value = raw.substring(0, 2) + ':' + raw.substring(2);
+      } else {
+        inp.value = raw;
+      }
+      checkLateNote();
+    });
+    inp.addEventListener('change', checkLateNote);
+  });
+
+  // ── Submit: catat satu aksi ───────────────────────────────────────────
+  function submitStamp() {
+    hide('n-ok'); hide('n-err');
+    var action = el('sel-action').value;
+    var time   = el('inp-time').value.trim();
+    if (!time) { showErr('Jam tidak boleh kosong.'); return; }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      showErr('Format jam tidak valid. Gunakan HH:MM, contoh: 07:30'); return;
+    }
+
+    var lateNote = '';
+    var noteSec  = el('late-note-section');
+    if (noteSec && !noteSec.classList.contains('hidden')) {
+      lateNote = el('inp-late-note').value.trim();
+      if (!lateNote) {
+        el('inp-late-note').classList.add('error');
+        el('inp-late-note').focus();
+        showErr('Alasan wajib diisi.');
+        return;
+      }
+      el('inp-late-note').classList.remove('error');
+    }
+
+    var btn = el('btn-stamp');
+    setLoading(btn, true, 'Mencatat…');
+
+    google.script.run
+      .withSuccessHandler(function () {
+        setLoading(btn, false, 'Catat');
+        show('n-ok'); window.scrollTo(0, 0);
+        reloadData();
+      })
+      .withFailureHandler(function (err) {
+        setLoading(btn, false, 'Catat');
+        showErr(err.message || String(err));
+      })
+      .submitAbsensi({
+        rowIdx    : _data.rowIdx, type: 'stamp', action: action, time: time,
+        ups       : el('chk-ups') ? el('chk-ups').checked : false,
+        pc        : el('chk-pc')  ? el('chk-pc').checked  : false,
+        keterangan: lateNote,
+      });
+  }
+
+  // ── Submit: tidak hadir ───────────────────────────────────────────────
+  function submitTidakHadir() {
+    hide('n-ok'); hide('n-err');
+    var status     = el('sel-status').value;
+    var keterangan = el('inp-keterangan').value.trim();
+    if (!keterangan) {
+      el('inp-keterangan').classList.add('error');
+      el('inp-keterangan').focus();
+      showErr('Keterangan wajib diisi.');
+      return;
+    }
+    el('inp-keterangan').classList.remove('error');
+    var btn = el('btn-nothadir');
+    setLoading(btn, true, 'Mengirim…');
+
+    google.script.run
+      .withSuccessHandler(function () {
+        setLoading(btn, false, 'Kirim');
+        show('n-ok'); window.scrollTo(0, 0);
+        reloadData();
+      })
+      .withFailureHandler(function (err) {
+        setLoading(btn, false, 'Kirim');
+        showErr(err.message || String(err));
+      })
+      .submitAbsensi({ rowIdx: _data.rowIdx, type: 'tidakHadir', status: status, keterangan: keterangan });
+  }
+
+  // ── Parse "HH:mm" ke total menit ─────────────────────────────────────
+  function timeToMinutes(hhmm) {
+    var parts = String(hhmm).split(':');
+    if (parts.length !== 2) return NaN;
+    var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return NaN;
+    return h * 60 + m;
+  }
+
+  // ── Tampilkan/sembunyikan field alasan telat atau pulang awal ─────────
+  function checkLateNote() {
+    var sec = el('late-note-section');
+    if (!sec) return;
+    var action = el('sel-action').value;
+    var time   = el('inp-time').value;
+    if ((action !== 'masuk' && action !== 'pulang') ||
+        !_data || !_data.plan ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      sec.classList.add('hidden');
+      return;
+    }
+    var planParts = _data.plan.split(' - ');
+    if (planParts.length !== 2) { sec.classList.add('hidden'); return; }
+    var planStart = timeToMinutes(planParts[0].trim());
+    var planEnd   = timeToMinutes(planParts[1].trim());
+    var entered   = timeToMinutes(time);
+    if (isNaN(planStart) || isNaN(planEnd) || isNaN(entered)) {
+      sec.classList.add('hidden');
+      return;
+    }
+    if (action === 'masuk' && entered > planStart + 30) {
+      setText('late-note-title', 'Alasan Telat');
+      sec.classList.remove('hidden');
+    } else if (action === 'pulang' && entered < planEnd) {
+      setText('late-note-title', 'Alasan Pulang Awal');
+      sec.classList.remove('hidden');
+    } else {
+      sec.classList.add('hidden');
+      el('inp-late-note').value = '';
+    }
+  }
+
+  // ── Submit: pilih plan jam kerja ─────────────────────────────────────
+  function submitPlan() {
+    hide('n-ok'); hide('n-err');
+    var plan = el('sel-plan').value;
+    if (!plan) { showErr('Pilih plan terlebih dahulu.'); return; }
+    var btn = el('btn-plan');
+    setLoading(btn, true, 'Menyimpan…');
+
+    google.script.run
+      .withSuccessHandler(function () {
+        setLoading(btn, false, '💾\u00a0 Simpan Plan');
+        show('n-ok'); window.scrollTo(0, 0);
+        reloadData();
+      })
+      .withFailureHandler(function (err) {
+        setLoading(btn, false, '💾\u00a0 Simpan Plan');
+        showErr(err.message || String(err));
+      })
+      .submitAbsensi({ rowIdx: _data.rowIdx, type: 'plan', plan: plan });
+  }
+
+  // ── Reload dari server setelah submit ─────────────────────────────────
+  function reloadData() {
+    google.script.run
+      .withSuccessHandler(function (d) {
+        _data = d;
+        var planEl = el('u-plan');
+        if (d.plan) {
+          setText('u-plan', '🕐 ' + d.plan);
+          planEl.classList.remove('empty');
+        } else {
+          setText('u-plan', 'Belum ada plan');
+          planEl.classList.add('empty');
+        }
+        applyState(d);
+      })
+      .withFailureHandler(function () {})
+      .getDataHariIni();
+  }
+
+  // ── State machine ─────────────────────────────────────────────────────
+  var STATES = ['blank', 'nothadir', 'absent', 'stamping', 'locked'];
+  function showState(name) {
+    STATES.forEach(function (s) {
+      var node = document.getElementById('state-' + s);
+      if (node) node.classList.add('hidden');
+    });
+    var t = document.getElementById('state-' + name);
+    if (t) t.classList.remove('hidden');
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+  function el(id)         { return document.getElementById(id); }
+  function show(id)       { el(id).classList.remove('hidden'); }
+  function hide(id)       { el(id).classList.add('hidden'); }
+  function setText(id, v) { el(id).textContent = v; }
+  function setLoading(btn, on, txt) { btn.disabled = on; btn.textContent = txt; }
+  function initials(name) {
+    return name.trim().split(/\s+/).slice(0, 2).map(function (w) {
+      return w[0].toUpperCase();
+    }).join('');
+  }
+
+  function fatalError(err) {
+    hide('loading');
+    show('pg-error');
+    setText('pg-error-msg', '❌ ' + (err.message || String(err)));
+  }
+
+  function showErr(msg) {
+    show('n-err'); setText('n-err', '❌ ' + msg);
+    window.scrollTo(0, 0);
+  }
+</script>
+</body>
+</html>
