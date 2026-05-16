@@ -16,8 +16,16 @@ set -euo pipefail
 # ── Daftar divisi: "NAMA:scriptId" ──────────────────────────────────────
 # Tambah baris baru untuk setiap divisi baru
 TARGETS=(
-  "HR:1fusNRSgk7H5t-s8gd_oHL5dT1wt5SS65ZPBR83EuL6e30pj6xExr8dQf"
-  "WEB:1cSbrUTMAnOaJqrG1Ev5qjdgMnhV1JXWopI5qA4WBVvpIwh8eFRqprv_A"
+  "IF - STAFF - HR:1fusNRSgk7H5t-s8gd_oHL5dT1wt5SS65ZPBR83EuL6e30pj6xExr8dQf"
+  "IF - STAFF - WEB:1cSbrUTMAnOaJqrG1Ev5qjdgMnhV1JXWopI5qA4WBVvpIwh8eFRqprv_A"
+  "IF - STAFF - PPIC:1R1C65Rp76CL5By3KaiY-eK_lzfd_sXWlsHn9t6ZTtjS1dHd50JzkZk11"
+  "IF - STAFF - R&D:1mcPn439jC5Fv9MlnhRlJKc5X0XG5QcwZZMaQlD2B7AcHop55TEO_K9Ra"
+  "IF - STAMPER:1p6RQYf47xy3axaIOw3GPZ0weX2LieQQPa1aR8bT7424GFoQHg4INX-zO"
+  "IF - ST5:1KjdVt9XZrr5B-YhJ73xHkxfsPdrbxmV1VI7bZFu07H2WHO5snE29wj7z"
+  "IF - SATPAM:17pqHm0r5uo0ADAhXDbLQs4YrVRFkDlgzHozfrMEPzIuCBQlhR3yuSXh6"
+  "IF - MECHANIC:1-1db2_bQz86se8f2Y0IDMSYxvnuGvEYrUpZ_kHAEP0ntsv12tdu9t8rT"
+  "IF - CS:1EKASbK1OsM1Rs3HaK9Cz0aqb57k8PAjcbh8nMrHwBj9lqTBS2_nLgYG-"
+  "DEV:1lfIZETbtj2BL1v12vWFSpMroyabTEeqbEQQnqKiW7Uae5FYVW9MRoSP1"
 )
 
 # ── Validasi ─────────────────────────────────────────────────────────────
@@ -68,7 +76,10 @@ for entry in "${TARGETS[@]}"; do
     <<< "$CLASP_BACKUP" > .clasp.json
 
   # Tulis Config.js sementara dengan DIVISI hanya untuk divisi ini
-  sed "s|DIVISI *:.*\[.*\]|DIVISI        : ['$NAMA']|" \
+  # NOTE: escape karakter spesial sed di replacement: & = whole match,
+  # | = delimiter, \ = escape. Tanpa ini, nama divisi seperti "R&D" rusak.
+  ESCAPED_NAMA=$(printf '%s' "$NAMA" | sed 's/[\\&|]/\\&/g')
+  sed "s|DIVISI *:.*\[.*\]|DIVISI        : ['$ESCAPED_NAMA']|" \
     <<< "$CONFIG_BACKUP" > Config.js
 
   if clasp push --force 2>&1; then

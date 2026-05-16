@@ -2,7 +2,7 @@
 // TRIGGERS.JS — Event trigger dan setup sistem
 //
 // Berisi:
-//   onEdit()      — guard proteksi edit per email (simple/installable trigger)
+//   onEditInstalled()      — guard proteksi edit per email (simple/installable trigger)
 //   onOpen()      — buat menu "Absensi Saya" saat file dibuka
 //   setupTrigger()— daftarkan semua trigger harian ke Apps Script
 //   setupAwal()   — inisialisasi satu kali: proteksi + trigger + sheet + append
@@ -14,7 +14,26 @@
 //   - Kolom L (Jam Efektif) terkunci — formula otomatis
 //   - Kolom P–Q (NOTE, SUNDAY) — hanya admin
 //   - Kolom lain: hanya bisa edit baris milik sendiri (cocokkan email)
-function onEdit(e) {
+function _requireAdmin() {
+  _loadSettings();
+  let email = '';
+  try { email = Session.getEffectiveUser().getEmail().trim().toLowerCase(); } catch(e) {}
+  if (!email) {
+    try { email = Session.getActiveUser().getEmail().trim().toLowerCase(); } catch(e) {}
+  }
+  if (!email) throw new Error(
+    'Email tidak terdeteksi. Pastikan Anda login dengan akun Google.'
+  );
+  const isAdmin = CONFIG.ADMIN_EMAILS.map(a => a.toLowerCase()).includes(email);
+  if (!isAdmin) throw new Error(
+    '❌ Akses ditolak — fitur ini hanya untuk admin.\nEmail Anda: ' + email
+  );
+}
+
+
+
+
+function onEditInstalled(e) {
   if (!e) return;
   _loadSettings();
 
@@ -64,6 +83,7 @@ function onEdit(e) {
   // Admin boleh edit segalanya
   const isAdmin = CONFIG.ADMIN_EMAILS.map(e => e.toLowerCase()).includes(emailUser);
   if (isAdmin) {
+    _maybeLogJamEdit(e, emailUser, sheet, row, col);
     Logger.log('✓ Admin edit: ' + emailUser + ' baris ' + row);
     return;
   }
@@ -98,24 +118,27 @@ function onEdit(e) {
     return;
   }
 
+  _maybeLogJamEdit(e, emailUser, sheet, row, col);
   Logger.log('✓ Edit valid: ' + emailUser + ' baris ' + row);
 }
 
-// ── _requireAdmin — Guard fungsi admin ───────────────────────────────
-// Lempar error jika user yang menjalankan bukan admin.
-// Saat fungsi dijalankan via klik menu (bukan simple trigger),
-// getEffectiveUser() dapat membaca email dengan benar.
-function _requireAdmin() {
-  _loadSettings();
-  const email = Session.getEffectiveUser().getEmail().trim().toLowerCase();
-  if (!email) throw new Error(
-    'Email tidak terdeteksi. Pastikan Anda sudah login dan script sudah diotorisasi.'
-  );
-  const isAdmin = CONFIG.ADMIN_EMAILS.map(a => a.toLowerCase()).includes(email);
-  if (!isAdmin) throw new Error(
-    '❌ Akses ditolak. Fitur ini hanya untuk admin.\nEmail Anda: ' + email
-  );
+// ── _maybeLogJamEdit — Catat ke audit log kalau yang diedit adalah kolom jam ──
+// Dipanggil di akhir alur onEditInstalled untuk edit yang sudah lolos guard.
+// Hanya log untuk kolom F-K (Masuk..Pulang). Edit kolom lain di-skip.
+function _maybeLogJamEdit(e, emailUser, sheet, row, col) {
+  const label = _kolomJamLabel(col);
+  if (!label) return;  // bukan kolom jam — abaikan
+  _logAuditJam({
+    email     : emailUser,
+    sumber    : 'sheet',
+    targetSheet: sheet.getName(),
+    row       : row,
+    kolomLabel: label,
+    nilaiLama : e.oldValue,
+    nilaiBaru : e.value,
+  });
 }
+
 
 // ── onOpen — Buat menu kustom saat spreadsheet dibuka ─────────────────
 // CATATAN: onOpen adalah simple trigger — Google membatasi akses email user
@@ -192,6 +215,7 @@ function onOpen() {
 //   17:00 → cekBelumIsiPulang() (reminder staf yang belum isi pulang)
 //   onEdit → guard proteksi (installable, lebih reliable dari simple trigger)
 function setupTrigger() {
+  _loadSettings();
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
 
   // Tanggal 1 tiap bulan jam 05:00 — buat sheet bulan baru sebelum append
@@ -210,8 +234,12 @@ function setupTrigger() {
   ScriptApp.newTrigger('lockBarisWebSudahPulang')
     .timeBased().everyHours(1).create();
 
-  // onEdit installable — guard proteksi per email
-  ScriptApp.newTrigger('onEdit')
+  // onEdit installable — guard proteksi per email.
+  // newTrigger('onEditInstalled') = nama FUNGSI yang akan dipanggil saat fire.
+  // .onEdit()                     = jenis EVENT (edit). Method ini wajib.
+  // Pakai nama fungsi 'onEditInstalled' (bukan 'onEdit') supaya Apps Script
+  // tidak ikut mem-fire-nya sebagai SIMPLE trigger dengan permission terbatas.
+  ScriptApp.newTrigger('onEditInstalled')
     .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
     .onEdit().create();
 
@@ -231,6 +259,7 @@ function setupTrigger() {
 // Urutan: proteksi Master_Data → trigger → buat sheet bulan ini → append hari ini
 // Jalankan sekali oleh HRD/admin saat pertama kali menggunakan sistem
 function setupAwal() {
+  _requireAdmin();
   try {
     setupProteksiMaster();
     setupTrigger();

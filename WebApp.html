@@ -54,6 +54,20 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Overlay loading saat submit/reload — block semua interaksi */
+    #overlay {
+      position: fixed; inset: 0;
+      background: rgba(255,255,255,.72);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999;
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      font-size: 14px; color: var(--muted);
+      gap: 6px;
+    }
+    #overlay .spin { margin: 0; }
+
     #pg-error { padding: 24px 16px; max-width: 540px; margin: 0 auto; }
 
     /* ═══════════════════════════════════
@@ -223,6 +237,13 @@
     .sum-row.editable:hover { background: #f5f5f5; }
     .sum-row.editable:active { background: #eee; }
     .sum-edit { font-size: 12px; color: var(--primary); margin-left: 6px; flex-shrink: 0; }
+    .sum-del {
+      font-size: 14px; color: #c62828;
+      margin-left: 8px; padding: 2px 6px; border-radius: 6px;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .sum-del:hover { background: #ffebee; }
+    .sum-del:active { background: #ffcdd2; }
     .edit-hint {
       font-size: 12px; color: var(--muted); text-align: center;
       margin-top: 10px; margin-bottom: -4px;
@@ -374,10 +395,16 @@
 </head>
 <body>
 
-  <!-- Loading -->
+  <!-- Loading awal (full page) -->
   <div id="loading">
     <div class="spin"></div>
     Memuat data absensi…
+  </div>
+
+  <!-- Overlay saat submit/reload (block interaksi) -->
+  <div id="overlay" class="hidden">
+    <div class="spin"></div>
+    <div id="overlay-msg">Menyimpan…</div>
   </div>
 
   <!-- Fatal error -->
@@ -612,15 +639,20 @@
       var tap    = editable && filled
         ? ' onclick="editRow(\'' + a.key + '\',\'' + (val || '') + '\')"'
         : '';
+      var delBtn = (editable && filled)
+        ? '<span class="sum-del" onclick="event.stopPropagation();deleteRow(\'' +
+          a.key + '\',\'' + a.label + '\',\'' + (val || '') + '\')" title="Hapus jam">🗑️</span>'
+        : '';
       html +=
         '<div class="' + cls + '"' + tap + '>' +
           '<span class="sum-icon">' + (filled ? '✅' : '—') + '</span>' +
           '<span class="sum-label">' + a.label + '</span>' +
           '<span class="sum-time' + (filled ? '' : ' empty') + '">' + (val || '—') + '</span>' +
           (editable && filled ? '<span class="sum-edit">✏️</span>' : '') +
+          delBtn +
         '</div>';
     });
-    if (editable) html += '<div class="edit-hint">Ketuk baris untuk mengedit waktu</div>';
+    if (editable) html += '<div class="edit-hint">Ketuk baris untuk mengedit waktu, 🗑️ untuk hapus</div>';
     if (fields.catatanTelat) {
       html += '<div style="margin-top:10px;padding:8px 10px;background:#fff8e1;border-radius:8px;font-size:13px;color:#5f4200;">' +
         '<span style="font-weight:600;">⚠️ Telat: </span>' +
@@ -696,6 +728,24 @@
     el('sel-action').focus();
   }
 
+  // ── Klik 🗑️ → konfirmasi & hapus jam ───────────────────────────────
+  function deleteRow(actionKey, label, currentTime) {
+    if (!confirm('Hapus jam ' + label + ' (' + currentTime + ')?\n\n' +
+                 'Tindakan ini tercatat di audit log.')) return;
+    hide('n-ok'); hide('n-err');
+    showOverlay('Menghapus…');
+    google.script.run
+      .withSuccessHandler(function () {
+        show('n-ok'); window.scrollTo(0, 0);
+        reloadData();
+      })
+      .withFailureHandler(function (err) {
+        hideOverlay();
+        showErr(err.message || String(err));
+      })
+      .submitAbsensi({ rowIdx: _data.rowIdx, type: 'deleteJam', action: actionKey });
+  }
+
   // ── Auto-format input jam: "0730" → "07:30" saat mengetik ───────────
   document.addEventListener('DOMContentLoaded', function () {
     var inp = el('inp-time');
@@ -737,6 +787,7 @@
 
     var btn = el('btn-stamp');
     setLoading(btn, true, 'Mencatat…');
+    showOverlay('Mencatat…');
 
     google.script.run
       .withSuccessHandler(function () {
@@ -746,6 +797,7 @@
       })
       .withFailureHandler(function (err) {
         setLoading(btn, false, 'Catat');
+        hideOverlay();
         showErr(err.message || String(err));
       })
       .submitAbsensi({
@@ -770,6 +822,7 @@
     el('inp-keterangan').classList.remove('error');
     var btn = el('btn-nothadir');
     setLoading(btn, true, 'Mengirim…');
+    showOverlay('Mengirim…');
 
     google.script.run
       .withSuccessHandler(function () {
@@ -779,6 +832,7 @@
       })
       .withFailureHandler(function (err) {
         setLoading(btn, false, 'Kirim');
+        hideOverlay();
         showErr(err.message || String(err));
       })
       .submitAbsensi({ rowIdx: _data.rowIdx, type: 'tidakHadir', status: status, keterangan: keterangan });
@@ -833,6 +887,7 @@
     if (!plan) { showErr('Pilih plan terlebih dahulu.'); return; }
     var btn = el('btn-plan');
     setLoading(btn, true, 'Menyimpan…');
+    showOverlay('Menyimpan plan…');
 
     google.script.run
       .withSuccessHandler(function () {
@@ -842,13 +897,17 @@
       })
       .withFailureHandler(function (err) {
         setLoading(btn, false, '💾\u00a0 Simpan Plan');
+        hideOverlay();
         showErr(err.message || String(err));
       })
       .submitAbsensi({ rowIdx: _data.rowIdx, type: 'plan', plan: plan });
   }
 
   // ── Reload dari server setelah submit ─────────────────────────────────
+  // Overlay ditampilkan oleh caller (submit*); di sini tinggal disembunyikan
+  // setelah data baru diterapkan. Ganti pesan supaya jelas state-nya.
   function reloadData() {
+    showOverlay('Memuat ulang…');
     google.script.run
       .withSuccessHandler(function (d) {
         _data = d;
@@ -861,8 +920,9 @@
           planEl.classList.add('empty');
         }
         applyState(d);
+        hideOverlay();
       })
-      .withFailureHandler(function () {})
+      .withFailureHandler(function () { hideOverlay(); })
       .getDataHariIni();
   }
 
@@ -883,6 +943,11 @@
   function hide(id)       { el(id).classList.add('hidden'); }
   function setText(id, v) { el(id).textContent = v; }
   function setLoading(btn, on, txt) { btn.disabled = on; btn.textContent = txt; }
+  function showOverlay(msg) {
+    if (msg) setText('overlay-msg', msg);
+    show('overlay');
+  }
+  function hideOverlay() { hide('overlay'); }
   function initials(name) {
     return name.trim().split(/\s+/).slice(0, 2).map(function (w) {
       return w[0].toUpperCase();

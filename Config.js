@@ -11,7 +11,7 @@
 var CONFIG = {
   // ── Struktural — jangan ubah tanpa deploy ulang ───────────────────
   SHEET_MASTER : 'Master_Data',
-  DIVISI       : ['WEB','HR'],
+  DIVISI       : ['STAFF - TESTING'],
 
   // ID Google Spreadsheet khusus Settings (satu file untuk semua divisi).
   // Isi setelah Owner menjalankan 🔑 Owner → Inisialisasi Settings.

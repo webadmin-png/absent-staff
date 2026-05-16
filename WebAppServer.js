@@ -191,8 +191,17 @@ function _doSubmitAbsensi(email, payload) {
     const allowed = ['Izin', 'Sakit', 'Alpha'];
     if (!allowed.includes(payload.status)) throw new Error('Status tidak valid.');
     sheet.getRange(row, COL_STATUS).setValue(payload.status);
-    [COL_MASUK, COL_IST1_M, COL_IST1_S, COL_IST2_M, COL_IST2_S, COL_PULANG]
-      .forEach(c => sheet.getRange(row, c).clearContent());
+
+    // Audit log: catat pembersihan jam (delete) untuk setiap kolom yang sebelumnya terisi
+    const TIME_COLS = [COL_MASUK, COL_IST1_M, COL_IST1_S, COL_IST2_M, COL_IST2_S, COL_PULANG];
+    const oldTimes = TIME_COLS.map(c => sheet.getRange(row, c).getValue());
+    TIME_COLS.forEach((c, idx) => {
+      sheet.getRange(row, c).clearContent();
+      _logAuditJam({
+        email: email, sumber: 'webapp', targetSheet: sheet.getName(), row: row,
+        kolomLabel: _kolomJamLabel(c), nilaiLama: oldTimes[idx], nilaiBaru: '',
+      });
+    });
     // Keterangan — string bebas, boleh kosong
     const keterangan = typeof payload.keterangan === 'string'
       ? payload.keterangan.trim().substring(0, 500) // cap 500 karakter
@@ -213,7 +222,13 @@ function _doSubmitAbsensi(email, payload) {
     if (!col) throw new Error('Aksi tidak valid: ' + payload.action);
     if (!payload.time) throw new Error('Jam tidak boleh kosong.');
 
+    // Baca nilai lama SEBELUM overwrite untuk audit log
+    const oldVal = sheet.getRange(row, col).getValue();
     _webSetTime(sheet, row, col, payload.time);
+    _logAuditJam({
+      email: email, sumber: 'webapp', targetSheet: sheet.getName(), row: row,
+      kolomLabel: _kolomJamLabel(col), nilaiLama: oldVal, nilaiBaru: payload.time,
+    });
 
     // Stamp masuk → otomatis set Status = Hadir
     if (payload.action === 'masuk') {
@@ -230,16 +245,18 @@ function _doSubmitAbsensi(email, payload) {
       sheet.getRange(row, COL_PULANG_AWAL).setValue(payload.keterangan.trim().substring(0, 500));
     }
 
-    // Stamp masuk/pulang → simpan status UPS & PC
+    // Stamp masuk/pulang → simpan status UPS & PC (replace, bukan append)
     if (payload.action === 'masuk' || payload.action === 'pulang') {
-      const label  = payload.action === 'masuk' ? 'ON' : 'OFF';
-      const ups    = payload.ups  ? 'UPS:' + label : 'UPS:-';
-      const pc     = payload.pc   ? 'PC:' + label  : 'PC:-';
+      const label = payload.action === 'masuk' ? 'ON' : 'OFF';
+      const ups   = payload.ups  ? 'UPS:' + label : 'UPS:-';
+      const pc    = payload.pc   ? 'PC:'  + label : 'PC:-';
+      const newSegment = ups + ' ' + pc;
+
       const existing = String(sheet.getRange(row, COL_DEVICE).getValue() || '');
-      const newVal = payload.action === 'masuk'
-        ? ups + ' ' + pc + (existing ? ' | ' + existing : '')
-        : (existing ? existing + ' | ' : '') + ups + ' ' + pc;
-      sheet.getRange(row, COL_DEVICE).setValue(newVal.trim());
+      const slots    = _parseDeviceStatus(existing);
+      if (payload.action === 'masuk')  slots.masuk  = newSegment;
+      else                              slots.pulang = newSegment;
+      sheet.getRange(row, COL_DEVICE).setValue(_renderDeviceStatus(slots));
     }
 
   } else if (payload.type === 'plan') {
@@ -247,6 +264,44 @@ function _doSubmitAbsensi(email, payload) {
     const allowed = CONFIG.PLAN_JAM;
     if (!allowed.includes(payload.plan)) throw new Error('Pilihan plan tidak valid.');
     sheet.getRange(row, COL_PLAN).setValue(payload.plan);
+
+  } else if (payload.type === 'deleteJam') {
+    // ── Hapus satu kolom jam (untuk koreksi salah input) ──
+    const ACTION_MAP = {
+      masuk      : COL_MASUK,
+      ist1Mulai  : COL_IST1_M,
+      ist1Selesai: COL_IST1_S,
+      ist2Mulai  : COL_IST2_M,
+      ist2Selesai: COL_IST2_S,
+      pulang     : COL_PULANG,
+    };
+    const col = ACTION_MAP[payload.action];
+    if (!col) throw new Error('Aksi tidak valid: ' + payload.action);
+
+    const oldVal = sheet.getRange(row, col).getValue();
+    sheet.getRange(row, col).clearContent();
+
+    // Kalau yang dihapus adalah Masuk dan tidak ada jam lain → reset Status juga
+    if (payload.action === 'masuk') {
+      const otherTimes = [COL_IST1_M, COL_IST1_S, COL_IST2_M, COL_IST2_S, COL_PULANG]
+        .map(c => sheet.getRange(row, c).getValue())
+        .some(v => v !== '' && v !== null);
+      if (!otherTimes) sheet.getRange(row, COL_STATUS).clearContent();
+    }
+
+    // Hapus device segment yang bersangkutan (masuk → ON segment, pulang → OFF segment)
+    if (payload.action === 'masuk' || payload.action === 'pulang') {
+      const existing = String(sheet.getRange(row, COL_DEVICE).getValue() || '');
+      const slots    = _parseDeviceStatus(existing);
+      if (payload.action === 'masuk')  slots.masuk  = '';
+      else                              slots.pulang = '';
+      sheet.getRange(row, COL_DEVICE).setValue(_renderDeviceStatus(slots));
+    }
+
+    _logAuditJam({
+      email: email, sumber: 'webapp', targetSheet: sheet.getName(), row: row,
+      kolomLabel: _kolomJamLabel(col), nilaiLama: oldVal, nilaiBaru: '',
+    });
 
   } else {
     throw new Error('Tipe submit tidak valid.');
@@ -319,4 +374,38 @@ function _webSetTime(sheet, row, col, timeStr) {
     return;
   }
   cell.setValue(timeStr).setNumberFormat('HH:mm');
+}
+
+// ── Device status helpers ────────────────────────────────────────────
+// Format kolom T (DEVICE):
+//   "<masuk-segment> | <pulang-segment>"
+//   contoh: "UPS:ON PC:ON | UPS:OFF PC:OFF"
+// Masuk segment selalu mengandung "ON" (atau hanya "-" kalau dua-duanya unchecked)
+// Pulang segment selalu mengandung "OFF" (atau hanya "-")
+// Parser pakai presence ON/OFF dulu, fallback ke posisi (slot 0 = masuk, 1 = pulang).
+
+function _parseDeviceStatus(existing) {
+  const parts = String(existing || '').split('|').map(s => s.trim()).filter(Boolean);
+  let masuk = '', pulang = '';
+  const ambiguous = [];
+  for (const p of parts) {
+    const hasOn  = /\bON\b/.test(p);
+    const hasOff = /\bOFF\b/.test(p);
+    if (hasOn && !hasOff)      masuk  = p;
+    else if (hasOff && !hasOn) pulang = p;
+    else                        ambiguous.push(p); // "UPS:- PC:-" — pakai posisi
+  }
+  // Fallback posisi untuk segment ambigu (semua dash)
+  for (let i = 0; i < ambiguous.length; i++) {
+    if (!masuk)       masuk  = ambiguous[i];
+    else if (!pulang) pulang = ambiguous[i];
+  }
+  return { masuk, pulang };
+}
+
+function _renderDeviceStatus(slots) {
+  const out = [];
+  if (slots.masuk)  out.push(slots.masuk);
+  if (slots.pulang) out.push(slots.pulang);
+  return out.join(' | ');
 }

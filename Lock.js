@@ -54,6 +54,7 @@ function cekBelumIsiPulang() {
 //   - Selisih waktu sekarang vs jam pulang >= 30 menit
 //   → Ganti proteksi menjadi hanya owner + admin (staf tidak bisa edit lagi)
 function lockBarisWebSudahPulang() {
+  _loadSettings();
   _requireAdmin();
   for (const divisi of CONFIG.DIVISI) {
     const sheet = getSheetAktifDivisi(divisi);
@@ -100,15 +101,21 @@ function lockBarisWebSudahPulang() {
       }
 
       // Koreksi jika jam pulang sudah lewat tengah malam
-      if (jamPulang > now) jamPulang.setDate(jamPulang.getDate() - 1);
+      if (jamPulang > now) {
+        Logger.log('⏳ ' + nama + ' (baris ' + row + '): pulang masih di masa depan (' +
+          Utilities.formatDate(jamPulang, CONFIG.TIMEZONE, 'HH:mm') + '), skip lock');
+        continue;
+      }
 
       const selisihMenit = (now - jamPulang) / 60000;
       if (selisihMenit < CONFIG.SELISIH_MENIT_LOCK) {
-        Logger.log('⏳ ' + nama + ' (baris ' + row + ') belum ' + CONFIG.SELISIH_MENIT_LOCK + ' menit (' +
+        Logger.log('⏳ ' + nama + ' (baris ' + row + ') belum ' +
+          CONFIG.SELISIH_MENIT_LOCK + ' menit (' +
           Math.round(selisihMenit) + ' menit)');
         continue;
       }
 
+      
       // Hapus proteksi lama pada baris ini
       const existingProt = allProtections.find(prot => {
         const r = prot.getRange();

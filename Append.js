@@ -16,6 +16,15 @@
 //   4. Pasang validasi dan proteksi baris baru
 function appendHariIni() {
   _requireAdmin();
+
+  // Lock: cegah eksekusi paralel (trigger 06:00 + admin manual klik bersamaan)
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    Logger.log('⚠ appendHariIni: tidak bisa acquire lock dalam 30s — skip.');
+    return;
+  }
+
+  try {
   const ss     = SpreadsheetApp.getActiveSpreadsheet();
   const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
   if (!master) {
@@ -160,6 +169,9 @@ function appendHariIni() {
   } catch(e) {
     // Dipanggil dari trigger — tidak ada UI
   }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ── appendTanggalBaru — Append hari berikutnya setelah tanggal terakhir ─
@@ -172,6 +184,14 @@ function appendTanggalBaru() {
   let ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { return; }
 
+  // Lock: cegah eksekusi paralel dengan appendHariIni / instance kedua
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    ui.alert('⚠ Append sedang berjalan. Coba lagi beberapa detik.');
+    return;
+  }
+
+  try {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // Ambil staf aktif dari Master_Data
@@ -214,8 +234,26 @@ function appendTanggalBaru() {
     const nextStr  = Utilities.formatDate(nextDate, CONFIG.TIMEZONE, 'dd/MM/yyyy');
     const namaHari = Utilities.formatDate(nextDate, CONFIG.TIMEZONE, 'EEEE');
 
-    // Cek duplikat
-    const sudahAda = colA.some(r => {
+    // Jika nextDate menyeberang ke bulan baru, sheet target harus sheet bulan itu
+    // — bukan sheet bulan lama yang sedang kita baca lastDate-nya.
+    let targetSheet = sheet;
+    if (nextDate.getMonth() !== lastDate.getMonth()
+        || nextDate.getFullYear() !== lastDate.getFullYear()) {
+      targetSheet = getSheetAktifDivisi(divisi, nextDate);
+      if (!targetSheet || targetSheet === sheet) {
+        const bulanTarget = Utilities.formatDate(nextDate, CONFIG.TIMEZONE, 'MMM yyyy');
+        preview.push('⚠ ' + divisi + ': sheet bulan ' + bulanTarget +
+                     ' belum ada — jalankan "Buat Sheet Bulan Baru" dulu');
+        continue;
+      }
+    }
+
+    // Cek duplikat — pakai data dari targetSheet (bisa beda sheet jika lintas bulan)
+    const targetLastRow = targetSheet.getLastRow();
+    const targetColA = targetLastRow > 3
+      ? targetSheet.getRange(4, 1, targetLastRow - 3, 1).getValues()
+      : [];
+    const sudahAda = targetColA.some(r => {
       const d = r[0];
       if (!(d instanceof Date)) return false;
       return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() === nextNorm.getTime();
@@ -225,8 +263,9 @@ function appendTanggalBaru() {
     const staf = stafPerDivisi[divisi.toUpperCase()] || [];
     if (staf.length === 0) { preview.push('⚠ ' + divisi + ': tidak ada staf aktif'); continue; }
 
-    rencana.push({ divisi, sheet, nextDate, namaHari, nextStr, staf });
-    preview.push('✓ ' + divisi + ': append ' + nextStr + ' (' + namaHari + ') — ' + staf.length + ' staf');
+    rencana.push({ divisi, sheet: targetSheet, nextDate, namaHari, nextStr, staf });
+    preview.push('✓ ' + divisi + ' (' + targetSheet.getName() + '): append ' +
+                 nextStr + ' (' + namaHari + ') — ' + staf.length + ' staf');
   }
 
   if (rencana.length === 0) {
@@ -311,6 +350,9 @@ function appendTanggalBaru() {
   groupByToday();
   highlightHariIni();
   ui.alert('✅ Append selesai!\n\n' + hasil.join('\n'));
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ── highlightHariIni — Warnai baris berdasarkan tanggal ───────────────

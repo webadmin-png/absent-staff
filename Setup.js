@@ -120,8 +120,10 @@ function buatSheetBulanBaru() {
 }
 
 // ── setupProteksiMaster — Kunci sheet Master_Data ─────────────────────
-// Hapus proteksi lama lalu kunci seluruh sheet untuk owner saja
+// Hapus proteksi lama lalu kunci seluruh sheet untuk owner + admin
+// (ADMIN_EMAILS diambil dinamis dari spreadsheet Settings via _loadSettings).
 function setupProteksiMaster() {
+  _loadSettings();
   const ss     = SpreadsheetApp.getActiveSpreadsheet();
   const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
   if (!master) return;
@@ -137,7 +139,8 @@ function setupProteksiMaster() {
   for (const adminEmail of CONFIG.ADMIN_EMAILS) {
     try { prot.addEditor(adminEmail); } catch(e) {}
   }
-  Logger.log('Proteksi Master_Data selesai.');
+  Logger.log('Proteksi Master_Data selesai dengan ' +
+             CONFIG.ADMIN_EMAILS.length + ' admin.');
 }
 
 // ── setupValidasiBaris — Pasang dropdown & validasi per baris baru ────
@@ -366,9 +369,15 @@ function perbaruiEditorAdmin() {
     }
   } catch(e) {}
 
+  // Re-apply proteksi Master_Data — ini adalah SHEET protection (bukan RANGE),
+  // jadi tidak ter-cover loop di atas. Tanpa baris ini, admin baru di Settings
+  // tidak akan bisa edit Master_Data sampai setupAwal dijalankan ulang.
+  try { setupProteksiMaster(); } catch(e) { Logger.log('⚠ Master_Data: ' + e.message); }
+
   const msg = '✅ Selesai!\n\n' +
     'Sheet diproses : ' + totalSheet + '\n' +
     'Proteksi update: ' + totalProt + '\n' +
+    'Master_Data    : proteksi di-refresh\n' +
     (totalGagal > 0 ? '⚠ Gagal        : ' + totalGagal + '\n' : '') +
     '\nSemua admin di CONFIG.ADMIN_EMAILS sudah ditambahkan.';
   Logger.log(msg);

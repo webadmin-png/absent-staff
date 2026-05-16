@@ -79,13 +79,13 @@ function buatSheetRekap() {
       const name             = String(data[i][COL_NAMA        - 1]).trim();
       if (!name) continue;
 
-      const regularHrs       = parseFloat(data[i][COL_REGULAR_JAM - 1]) || 0;
-      const ot1Hrs           = parseFloat(data[i][COL_OT1         - 1]) || 0;
-      const otAfter1stHrs    = parseFloat(data[i][COL_OT2         - 1]) || 0;
+      const regularHrs       = parseTimeFraction(data[i][COL_REGULAR_JAM - 1]) || 0;
+      const ot1Hrs           = parseTimeFraction(data[i][COL_OT1         - 1]) || 0;
+      const otAfter1stHrs    = parseTimeFraction(data[i][COL_OT2         - 1]) || 0;
       const sundayRedDayNote = String(data[i][COL_SUNDAY      - 1]).trim();
       const note             = String(data[i][COL_NOTE        - 1]).trim();
       const namaHari         = String(data[i][COL_HARI        - 1]).trim();
-      const effectiveHrs     = parseFloat(data[i][COL_EFEKTIF - 1]) || 0;
+      const effectiveHrs     = parseTimeFraction(data[i][COL_EFEKTIF - 1]) || 0;
 
       if (!employeeHoursMap[name]) {
         employeeHoursMap[name] = {
