@@ -19,7 +19,12 @@
 // Dipanggil browser saat user membuka URL Web App.
 // Mengembalikan halaman HTML dari file WebApp.html.
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('WebApp')
+  const t = HtmlService.createTemplateFromFile('WebApp');
+  // Dipakai client untuk tombol "Ganti Akun" — perlu URL deployment ini
+  // sebagai parameter continue ke Google AccountChooser. Tidak bisa
+  // dibaca dari window.top.location.href karena cross-origin iframe.
+  t.webAppUrl = ScriptApp.getService().getUrl();
+  return t.evaluate()
     .setTitle('Absensi — ' + CONFIG.NAMA_INSTANSI)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -32,8 +37,10 @@ function doGet() {
 function getDataHariIni() {
   _loadSettings();
   const email = Session.getEffectiveUser().getEmail().trim().toLowerCase();
+  // Prefix [AUTH_*] dibaca client untuk menampilkan tombol "Ganti Akun"
+  // hanya saat error memang related ke akun. Lihat fatalError() di WebApp.html.
   if (!email) throw new Error(
-    'Akun Google tidak terdeteksi.\n' +
+    '[AUTH_NO_EMAIL] Akun Google tidak terdeteksi.\n' +
     'Pastikan Anda sudah login dan Web App sudah di-redeploy setelah update manifest.'
   );
 
@@ -59,9 +66,10 @@ function getDataHariIni() {
     }
   }
   if (!userInfo) throw new Error(
-    'Email tidak ditemukan di Master_Data atau akun tidak aktif.\n' +
-    'Email terdeteksi: ' + email + '\n' +
-    'Hubungi HRD untuk pendaftaran.'
+    '[AUTH_NOT_REGISTERED] Email "' + email + '" tidak terdaftar di sistem.\n' +
+    'Kemungkinan Anda login dengan akun Google yang salah.\n' +
+    'Klik "Ganti Akun Google" di bawah untuk pilih akun lain,\n' +
+    'atau hubungi HRD jika perlu pendaftaran akun baru.'
   );
 
   const sheet = getSheetAktifDivisi(userInfo.divisi);

@@ -130,6 +130,7 @@
     }
     .alert-err  { background: #fde8e8; color: var(--red); }
     .alert-ok   { background: #e8f5e9; color: var(--green); }
+    .alert-warn { background: #fff8e1; color: #5f4200; }
 
     /* ═══════════════════════════════════
        BUTTONS
@@ -411,6 +412,8 @@
   <div id="pg-error" class="hidden">
     <div class="card">
       <div class="alert alert-err" id="pg-error-msg"></div>
+      <button id="btn-switch-account" class="btn btn-primary" style="margin-top:14px" onclick="switchAccount()">👤&nbsp; Ganti Akun Google</button>
+      <button class="btn btn-ghost" style="margin-top:10px" onclick="retryLoad()">🔄&nbsp; Coba Lagi</button>
     </div>
   </div>
 
@@ -449,7 +452,10 @@
 
       <!-- STATE: blank -->
       <div id="state-blank" class="card hidden">
-        <button class="btn btn-primary" onclick="goHadir()">🟢&nbsp; Saya Hadir</button>
+        <div id="hadir-plan-hint" class="alert alert-warn hidden">
+          ⚠️ Pilih plan jam kerja dan klik <b>Simpan Plan</b> dulu untuk mencatat kehadiran.
+        </div>
+        <button id="btn-hadir" class="btn btn-primary" onclick="goHadir()">🟢&nbsp; Saya Hadir</button>
         <button class="btn btn-outline" style="margin-top:10px" onclick="goTidakHadir()">📝&nbsp; Tidak Hadir</button>
       </div>
 
@@ -605,6 +611,11 @@
 
     if (!s) {
       showState('blank');
+      // Tombol "Saya Hadir" butuh plan tersimpan dulu.
+      // "Tidak Hadir" tidak butuh plan (Izin/Sakit/Alpha tidak kerja).
+      var hasPlan = !!(d.plan && String(d.plan).trim());
+      el('btn-hadir').disabled = !hasPlan;
+      if (hasPlan) hide('hadir-plan-hint'); else show('hadir-plan-hint');
 
     } else if (s === 'Izin' || s === 'Sakit' || s === 'Alpha') {
       hide('plan-card');
@@ -957,7 +968,41 @@
   function fatalError(err) {
     hide('loading');
     show('pg-error');
-    setText('pg-error-msg', '❌ ' + (err.message || String(err)));
+
+    var raw = err.message || String(err);
+    // Server menandai error auth dengan prefix [AUTH_*] supaya kita tahu
+    // tombol "Ganti Akun" relevan atau tidak. Lihat WebAppServer.js.
+    // Catatan: google.script.run kadang prepend "Error: " ke message,
+    // jadi tag bisa muncul di awal atau setelah "Error: " — match dua-duanya.
+    var isAuthError = /\[AUTH_[A-Z_]+\]/.test(raw);
+    var clean = raw
+      .replace(/^Error:\s*/, '')
+      .replace(/^\[AUTH_[A-Z_]+\]\s*/, '');
+
+    setText('pg-error-msg', '❌ ' + clean);
+
+    // Tombol "Ganti Akun" tidak masuk akal untuk error non-auth
+    // (misal "trigger belum jalan", "sheet tidak ditemukan").
+    el('btn-switch-account').style.display = isAuthError ? '' : 'none';
+  }
+
+  // URL deployment ini, di-inject server-side via template di doGet().
+  // Tidak bisa diambil dari window.top.location.href (cross-origin iframe).
+  var WEBAPP_URL = <?!= JSON.stringify(webAppUrl) ?>;
+
+  // Buka Google Account Chooser. Setelah user pilih akun, browser
+  // redirect balik ke URL web app pakai akun yang dipilih.
+  function switchAccount() {
+    var url = 'https://accounts.google.com/AccountChooser?continue=' +
+              encodeURIComponent(WEBAPP_URL);
+    window.top.location.href = url;
+  }
+
+  // Reload halaman. Tidak pakai location.reload() karena di Apps Script
+  // itu hanya reload iframe (signed URL transient → layar putih).
+  // Harus navigasi top window ke URL deployment.
+  function retryLoad() {
+    window.top.location.href = WEBAPP_URL;
   }
 
   function showErr(msg) {
