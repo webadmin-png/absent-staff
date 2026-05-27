@@ -438,8 +438,12 @@
     <div id="col-right">
 
       <!-- Inline notices -->
-      <div id="n-ok"  class="alert alert-ok  hidden">✅ Berhasil dicatat.</div>
-      <div id="n-err" class="alert alert-err hidden"></div>
+      <div id="n-ok"        class="alert alert-ok   hidden">✅ Berhasil dicatat.</div>
+      <div id="n-err"       class="alert alert-err  hidden"></div>
+      <div id="n-yesterday" class="alert alert-warn hidden">
+        🌙 Anda sedang mengisi shift <b>kemarin</b> (<span id="n-yesterday-date"></span>).<br>
+        Aksi clock-out akan dicatat di baris tanggal tersebut.
+      </div>
 
       <!-- PLAN CARD — selalu tampil kecuali locked -->
       <div id="plan-card" class="card hidden">
@@ -574,6 +578,13 @@
     setText('u-divisi', d.divisi);
     setText('u-email',  d.email);
     setText('u-date',   d.hari + ', ' + d.tanggal);
+
+    if (d.isYesterdayShift) {
+      setText('n-yesterday-date', d.tanggal);
+      show('n-yesterday');
+    } else {
+      hide('n-yesterday');
+    }
 
     var planEl = el('u-plan');
     if (d.plan) {
@@ -754,7 +765,7 @@
         hideOverlay();
         showErr(err.message || String(err));
       })
-      .submitAbsensi({ rowIdx: _data.rowIdx, type: 'deleteJam', action: actionKey });
+      .submitAbsensi({ rowIdx: _data.rowIdx, sheetName: _data.sheetName, type: 'deleteJam', action: actionKey });
   }
 
   // ── Auto-format input jam: "0730" → "07:30" saat mengetik ───────────
@@ -812,7 +823,8 @@
         showErr(err.message || String(err));
       })
       .submitAbsensi({
-        rowIdx    : _data.rowIdx, type: 'stamp', action: action, time: time,
+        rowIdx    : _data.rowIdx, sheetName: _data.sheetName,
+        type: 'stamp', action: action, time: time,
         ups       : el('chk-ups') ? el('chk-ups').checked : false,
         pc        : el('chk-pc')  ? el('chk-pc').checked  : false,
         keterangan: lateNote,
@@ -846,7 +858,7 @@
         hideOverlay();
         showErr(err.message || String(err));
       })
-      .submitAbsensi({ rowIdx: _data.rowIdx, type: 'tidakHadir', status: status, keterangan: keterangan });
+      .submitAbsensi({ rowIdx: _data.rowIdx, sheetName: _data.sheetName, type: 'tidakHadir', status: status, keterangan: keterangan });
   }
 
   // ── Parse "HH:mm" ke total menit ─────────────────────────────────────
@@ -911,7 +923,7 @@
         hideOverlay();
         showErr(err.message || String(err));
       })
-      .submitAbsensi({ rowIdx: _data.rowIdx, type: 'plan', plan: plan });
+      .submitAbsensi({ rowIdx: _data.rowIdx, sheetName: _data.sheetName, type: 'plan', plan: plan });
   }
 
   // ── Reload dari server setelah submit ─────────────────────────────────

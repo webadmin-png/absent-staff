@@ -904,10 +904,13 @@ function buatSheetRentang() {
   const qStart = Utilities.formatDate(startDate, CONFIG.TIMEZONE, 'yyyy-MM-dd');
   const qEnd   = Utilities.formatDate(endDate,   CONFIG.TIMEZONE, 'yyyy-MM-dd');
 
-  // Gabungkan semua sheet sumber menjadi satu array {Sheet1!A4:Q; Sheet2!A4:Q; ...}
-  const bagianRange = namaSheetSrc.map(n => "'" + n + "'!A4:R").join('; ');
+  // Gabungkan semua sheet sumber menjadi satu array {Sheet1!A4:T; Sheet2!A4:T; ...}
+  // Range A:T = 20 kolom (Tanggal sampai UPC/PC STATUS) — cocok dengan jumlah header
+  // di sheet output. TOTAL_COL absensi adalah 22 (A:V); kolom U:V (CATATAN TELAT,
+  // CATATAN PULANG AWAL) tidak ikut ditarik agar tampilan ringkas.
+  const bagianRange = namaSheetSrc.map(n => "'" + n + "'!A4:T").join('; ');
   const dataArray   = namaSheetSrc.length === 1
-    ? "'" + namaSheetSrc[0] + "'!A4:R"
+    ? "'" + namaSheetSrc[0] + "'!A4:T"
     : '{' + bagianRange + '}';
 
   const queryStr =
@@ -919,27 +922,9 @@ function buatSheetRentang() {
   const formula = '=IFERROR(QUERY(' + dataArray + ',"' + queryStr + '",0),"— Tidak ada data dalam rentang ini —")';
 
   // ── 6. Buat sheet output ────────────────────────────────────────────
-  let outSheet = ss.getSheetByName(namaOutput);
-  if (outSheet) ss.deleteSheet(outSheet);
-  outSheet = ss.insertSheet(namaOutput);
-  outSheet.setTabColor('#1565C0');
-  outSheet.setHiddenGridlines(true);
-
-  // Baris 1: judul
-  outSheet.getRange(1, 1, 1, TOTAL_COL).merge()
-    .setValue('DATA ABSENSI  |  ' + labelStart + '  →  ' + labelEnd)
-    .setBackground('#0F6E56').setFontColor('#FFFFFF')
-    .setFontSize(11).setFontWeight('bold').setHorizontalAlignment('center');
-  outSheet.setRowHeight(1, 28);
-
-  // Baris 2: keterangan sheet sumber
-  outSheet.getRange(2, 1, 1, TOTAL_COL).merge()
-    .setValue('Sumber: ' + namaSheetSrc.join(', '))
-    .setBackground('#E8F5E9').setFontColor('#2E7D32')
-    .setFontSize(8).setFontStyle('italic');
-  outSheet.setRowHeight(2, 16);
-
-  // Baris 3: header kolom (sama dengan sheet divisi)
+  // Header kolom output (A:T = 20 kolom, sama dengan range QUERY di atas).
+  // Pakai headers.length (bukan TOTAL_COL) karena output sheet ini hanya A:T
+  // sementara TOTAL_COL untuk sheet absensi adalah 22 (A:V).
   const headers = [
     'Tanggal','Hari','Nama','Email',
     'Status','Masuk','Ist.1 Mulai','Ist.1 Selesai',
@@ -947,6 +932,28 @@ function buatSheetRentang() {
     'Jam Efektif','Regular Hrs','OT 1','OT 2',
     'NOTE','SUNDAY/RED DAY','KETERANGAN TIDAK HADIR','PLAN','UPC/PC STATUS',
   ];
+
+  let outSheet = ss.getSheetByName(namaOutput);
+  if (outSheet) ss.deleteSheet(outSheet);
+  outSheet = ss.insertSheet(namaOutput);
+  outSheet.setTabColor('#1565C0');
+  outSheet.setHiddenGridlines(true);
+
+  // Baris 1: judul
+  outSheet.getRange(1, 1, 1, headers.length).merge()
+    .setValue('DATA ABSENSI  |  ' + labelStart + '  →  ' + labelEnd)
+    .setBackground('#0F6E56').setFontColor('#FFFFFF')
+    .setFontSize(11).setFontWeight('bold').setHorizontalAlignment('center');
+  outSheet.setRowHeight(1, 28);
+
+  // Baris 2: keterangan sheet sumber
+  outSheet.getRange(2, 1, 1, headers.length).merge()
+    .setValue('Sumber: ' + namaSheetSrc.join(', '))
+    .setBackground('#E8F5E9').setFontColor('#2E7D32')
+    .setFontSize(8).setFontStyle('italic');
+  outSheet.setRowHeight(2, 16);
+
+  // Baris 3: header kolom (sama dengan sheet divisi)
   outSheet.getRange(3, 1, 1, headers.length)
     .setValues([headers])
     .setBackground('#1D9E75').setFontColor('#FFFFFF')
@@ -1098,10 +1105,10 @@ function calculateDayRegMealAllowance(namaHari, sundayRedDayNote, note) {
 }
 
 // Sunday/Red Day Meal Allowance = hari dapat uang makan hari Minggu/merah
+// Hanya saat Q=DOUBLE (worker benar-benar kerja Sunday/Red Day).
+// Sama dengan formula template: =COUNTIFS(Q:Q,"DOUBLE")
 function calculateSundayRedDayMealAllowance(namaHari, sundayRedDayNote) {
-  if (namaHari.toLowerCase() === 'sunday' || sundayRedDayNote.toUpperCase() === 'DOUBLE') {
-    return 1;
-  }
+  if (sundayRedDayNote.toUpperCase() === 'DOUBLE') return 1;
   return 0;
 }
 

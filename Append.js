@@ -25,11 +25,11 @@ function appendHariIni() {
   }
 
   try {
-  const ss     = SpreadsheetApp.getActiveSpreadsheet();
-  const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
-  if (!master) {
-    Logger.log('❌ Master_Data tidak ditemukan.');
-    return;
+    const ss     = SpreadsheetApp.getActiveSpreadsheet();
+    const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
+    if (!master) {
+      Logger.log('❌ Master_Data tidak ditemukan.');
+      return;
   }
 
   const today    = getToday();
@@ -442,51 +442,170 @@ function _pasangFormulaBaris(sheet, startRow, numRows) {
   for (let r = startRow; r < startRow + numRows; r++) {
     const a=`A${r}`, b=`B${r}`, e=`E${r}`, f=`F${r}`,
           g=`G${r}`, h=`H${r}`, i=`I${r}`, j=`J${r}`,
-          k=`K${r}`, l=`L${r}`, p=`P${r}`;
+          k=`K${r}`, l=`L${r}`, p=`P${r}`, s=`S${r}`, q=`Q${r}`;
+
+    // Durasi K-F dengan dukungan lintas tengah malam:
+    // jika pulang (K) < masuk (F), berarti clock-out di hari berikutnya → tambah 1 (24 jam)
+    const kf = `IF(${k}<${f},${k}+1-${f},${k}-${f})`;
 
     // L: Jam Efektif (fraction hari)
+    // Aturan khusus Minggu: walau status="Hadir", jika PLAN (S) kosong → 0
+    // (mencegah jam efektif terhitung tanpa plan kerja eksplisit di hari libur)
     sheet.getRange(r, COL_EFEKTIF).setFormula(
       `=IF(${e}<>"Hadir",0,` +
+      `IF(AND(${b}="Sunday",${q}=""),0,` +
       `IF(OR(${f}="",${k}=""),0,` +
       `IF(AND(${g}<>"",${h}<>""),` +
         `IF(AND(${i}<>"",${j}<>""),` +
-          `${k}-${f}-(${h}-${g})-(${j}-${i}),` +
-          `${k}-${f}-(${h}-${g})),` +
+          `${kf}-(${h}-${g})-(${j}-${i}),` +
+          `${kf}-(${h}-${g})),` +
       `IF(AND(${i}<>"",${j}<>""),` +
-          `${k}-${f}-(${j}-${i}),` +
-          `${k}-${f}))))`
+          `${kf}-(${j}-${i}),` +
+          `${kf})))))`
     );
 
     // M: Regular Hours
-    // Jika NOTE mengandung "PAID" (mis. VACATION PAID, SICK PAID), langsung 7 jam
+    // Precedence:
+    //  1. Status="Red Day" → REGULAR_DAYS jam (tetap, tidak peduli hari)
+    //  2. NOTE ∈ paid-off list (RED DAY/VACATION PAID/FLEX DAY/dst) → REGULAR_DAYS jam (full)
+    //  3. Saturday normal → cap REGULAR_DAYS jika Jam Efektif >= SATURDAY, else Jam Efektif
+    //  4. Weekday normal → cap REGULAR_DAYS jika Jam Efektif >= REGULAR_DAYS, else Jam Efektif
     sheet.getRange(r, COL_REGULAR_JAM).setFormula(
-      `=IF(AND(ISNUMBER(SEARCH("PAID",${p})),NOT(ISNUMBER(SEARCH("UNPAID",${p})))),${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,` +
+      `=IF(${e}="Red Day",${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,` +
+      `IF(OR(${p}="RED DAY",${p}="RED DAY DOUBLE",${p}="SAVING DAY RED DAY/SUNDAY",${p}="SWAP RED DAY",${p}="VACATION PAID",${p}="FLEX DAY",${p}="ADDITIONAL PAID",${p}="MATERNITY LEAVE",${p}="SICK PAID"),` +
+        `IF(${b}="Saturday",${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24),` +
       `IF(${b}="Saturday",` +
         `IF(${l}>=${CONFIG.DAYS_HOUR.SATURDAY}/24,` +
           `${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,${l}),` +
       `IF(${l}>=${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,` +
-        `${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,${l})))`
+        `${CONFIG.DAYS_HOUR.REGULAR_DAYS}/24,${l}))))`
     );
 
     // N: OT 1 (maks 1 jam di atas regular)
+    // Sama dengan L: Minggu tanpa PLAN → 0 (tidak hitung OT tanpa plan eksplisit)
     sheet.getRange(r, COL_OT1).setFormula(
-      `=IF(${e}<>"Hadir",0,IF(OR(${f}="",${k}=""),0,IF((${k}-${f}-IF(AND(${g}<>"",${h}<>""),${h}-${g},0)-IF(AND(${i}<>"",${j}<>""),${j}-${i},0))<=IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})/24,0,MIN(1/24,(${k}-${f}-IF(AND(${g}<>"",${h}<>""),${h}-${g},0)-IF(AND(${i}<>"",${j}<>""),${j}-${i},0))-IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})/24))))`
+      `=IF(${e}<>"Hadir",0,IF(AND(${b}="Sunday",${q}=""),0,IF(OR(${f}="",${k}=""),0,IF((${kf}-IF(AND(${g}<>"",${h}<>""),${h}-${g},0)-IF(AND(${i}<>"",${j}<>""),${j}-${i},0))<=IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})/24,0,MIN(1/24,(${kf}-IF(AND(${g}<>"",${h}<>""),${h}-${g},0)-IF(AND(${i}<>"",${j}<>""),${j}-${i},0))-IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})/24)))))`
     );
 
     // O: OT 2 (di atas OT 1)
+    // Sama dengan L/N: Minggu tanpa PLAN → 0
     sheet.getRange(r, COL_OT2).setFormula(
       `=IF(${e}<>"Hadir",0,` +
+      `IF(AND(${b}="Sunday",${q}=""),0,` +
       `IF(OR(${f}="",${k}=""),0,` +
-      `IF((${k}-${f}` +
+      `IF((${kf}` +
         `-IF(AND(${g}<>"",${h}<>""),${h}-${g},0)` +
         `-IF(AND(${i}<>"",${j}<>""),${j}-${i},0))` +
         `<=(IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})+1)/24,` +
       `0,` +
-      `${k}-${f}` +
+      `${kf}` +
         `-IF(AND(${g}<>"",${h}<>""),${h}-${g},0)` +
         `-IF(AND(${i}<>"",${j}<>""),${j}-${i},0)` +
-        `-(IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})+1)/24)))`
+        `-(IF(WEEKDAY(${a},2)=6,${CONFIG.DAYS_HOUR.SATURDAY},${CONFIG.DAYS_HOUR.REGULAR_DAYS})+1)/24))))`
     );
+  }
+}
+
+// ── perbaruiRumusSemuaBaris — Pasang ulang rumus L, M, N, O ke baris lama ─
+// Dipanggil manual oleh admin dari menu ⚙ Admin ketika rumus di Append.js
+// diperbarui (misal: dukungan lintas tengah malam, aturan Minggu, dll).
+// Operasi hanya mengganti rumus — data jam (E–K) dan kolom lain tidak disentuh.
+//
+// Cakupan:
+//   - Sheet aktif (yang sedang dibuka admin), ATAU
+//   - Semua sheet divisi (semua bulan) — sesuai pilihan admin
+function perbaruiRumusSemuaBaris() {
+  _requireAdmin();
+  let ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { return; }
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    ui.alert('⚠ Sistem sedang sibuk. Coba lagi beberapa detik.');
+    return;
+  }
+
+  try {
+    const ss          = SpreadsheetApp.getActiveSpreadsheet();
+    const activeSheet = ss.getActiveSheet();
+    const activeName  = activeSheet.getName();
+
+    // Pilih scope: sheet aktif saja, atau semua sheet divisi
+    const scopeRes = ui.alert(
+      '🔄 Perbarui Rumus L, M, N, O',
+      'Pilih cakupan update:\n\n' +
+      '• YES  → SEMUA sheet divisi (semua bulan)\n' +
+      '• NO   → Hanya sheet aktif: "' + activeName + '"\n' +
+      '• CANCEL → Batal',
+      ui.ButtonSet.YES_NO_CANCEL
+    );
+    if (scopeRes === ui.Button.CANCEL || scopeRes === ui.Button.CLOSE) return;
+
+    // Kumpulkan sheet target
+    const targets = [];
+    if (scopeRes === ui.Button.YES) {
+      const divisiPrefixes = CONFIG.DIVISI.map(d => d.toUpperCase());
+      for (const s of ss.getSheets()) {
+        const nameUp  = s.getName().toUpperCase();
+        const lastRow = s.getLastRow();
+        if (lastRow < 4) continue;
+        const matched = divisiPrefixes.some(p => nameUp === p || nameUp.startsWith(p + '_'));
+        if (matched) targets.push({ sheet: s, rows: lastRow - 3 });
+      }
+    } else {
+      const lastRow = activeSheet.getLastRow();
+      if (lastRow < 4) { ui.alert('Sheet aktif belum punya data.'); return; }
+      // Validasi: sheet aktif harus sheet divisi
+      const nameUp = activeName.toUpperCase();
+      const matched = CONFIG.DIVISI.map(d => d.toUpperCase())
+        .some(p => nameUp === p || nameUp.startsWith(p + '_'));
+      if (!matched) {
+        ui.alert('Sheet aktif "' + activeName + '" bukan sheet divisi.');
+        return;
+      }
+      targets.push({ sheet: activeSheet, rows: lastRow - 3 });
+    }
+
+    if (targets.length === 0) {
+      ui.alert('Tidak ada sheet divisi yang ditemukan.');
+      return;
+    }
+
+    const totalRows = targets.reduce((sum, t) => sum + t.rows, 0);
+    const preview   = targets.map(t => '• ' + t.sheet.getName() + ': ' + t.rows + ' baris').join('\n');
+
+    const konfirmasi = ui.alert(
+      'Konfirmasi Perbarui Rumus',
+      'Akan memperbarui rumus L, M, N, O untuk ' + totalRows +
+        ' baris di ' + targets.length + ' sheet:\n\n' +
+      preview + '\n\n' +
+      'Data jam masuk/pulang/istirahat TIDAK akan berubah.\n' +
+      'Lanjutkan?',
+      ui.ButtonSet.YES_NO
+    );
+    if (konfirmasi !== ui.Button.YES) return;
+
+    // Eksekusi — pasang rumus per sheet
+    const hasil = [];
+    for (const t of targets) {
+      try {
+        _pasangFormulaBaris(t.sheet, 4, t.rows);
+        // Re-apply format jam — jaga konsisten
+        t.sheet.getRange(4, COL_EFEKTIF,     t.rows, 1).setNumberFormat('[h]:mm');
+        t.sheet.getRange(4, COL_REGULAR_JAM, t.rows, 1).setNumberFormat('[h]:mm');
+        t.sheet.getRange(4, COL_OT1,         t.rows, 1).setNumberFormat('[h]:mm');
+        t.sheet.getRange(4, COL_OT2,         t.rows, 1).setNumberFormat('[h]:mm');
+        hasil.push('✓ ' + t.sheet.getName() + ': ' + t.rows + ' baris');
+        Logger.log('perbaruiRumusSemuaBaris: ' + t.sheet.getName() + ' — ' + t.rows + ' baris');
+      } catch(e) {
+        hasil.push('❌ ' + t.sheet.getName() + ': ' + e.message);
+        Logger.log('perbaruiRumusSemuaBaris error pada ' + t.sheet.getName() + ': ' + e.message);
+      }
+    }
+
+    ui.alert('✅ Perbarui rumus selesai!\n\n' + hasil.join('\n'));
+  } finally {
+    lock.releaseLock();
   }
 }
 

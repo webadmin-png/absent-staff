@@ -151,8 +151,8 @@ function setupValidasiBaris(sheet, startRow, numRows) {
   // E: Status (dropdown)
   sheet.getRange(startRow, COL_STATUS, numRows, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Hadir', 'Sakit', 'Izin', 'Alpha'], true)
-      .setHelpText('Pilih: Hadir / Sakit / Izin / Alpha')
+      .requireValueInList(['Hadir', 'Sakit', 'Izin', 'Alpha', 'Red Day'], true)
+      .setHelpText('Pilih: Hadir / Sakit / Izin / Alpha / Red Day')
       .setAllowInvalid(false).build()
   );
 

@@ -60,47 +60,75 @@ function lockBarisWebSudahPulang() {
     const sheet = getSheetAktifDivisi(divisi);
     if (!sheet) continue;
 
-    const now   = new Date();
-    const today = getToday();
-    const data  = sheet.getDataRange().getValues();
+    const now       = new Date();
+    const today     = getToday();
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12, 0, 0);
+    const data      = sheet.getDataRange().getValues();
 
     // Ambil semua proteksi sekali di luar loop (lebih efisien)
     const allProtections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
     const adminEmails    = CONFIG.ADMIN_EMAILS;
+
+    // Helper: ekstrak {h, m} dari nilai cell jam (Date object atau "HH:mm" string)
+    const _extractHM = (val) => {
+      if (val instanceof Date) return { h: val.getHours(), m: val.getMinutes() };
+      if (typeof val === 'string' && val.includes(':')) {
+        const parts = val.split(':');
+        return { h: parseInt(parts[0]), m: parseInt(parts[1]) };
+      }
+      return null;
+    };
 
     for (let i = 3; i < data.length; i++) {
       const row    = i + 1;
       const tgl    = data[i][0];
       const nama   = String(data[i][COL_NAMA   - 1]).trim();
       const status = String(data[i][COL_STATUS - 1]).trim();
+      const masuk  = data[i][COL_MASUK  - 1];
       const pulang = data[i][COL_PULANG - 1];
       const email  = String(data[i][COL_EMAIL  - 1]).trim();
 
-      // Skip baris bukan hari ini
-      if (!tgl || !isSameDate(tgl, today)) continue;
+      // Skip baris bukan hari ini DAN bukan kemarin
+      // Baris kemarin diproses untuk dukung shift malam (pulang diisi besok pagi)
+      if (!tgl) continue;
+      const isToday     = isSameDate(tgl, today);
+      const isYesterday = isSameDate(tgl, yesterday);
+      if (!isToday && !isYesterday) continue;
 
       // Skip jika bukan Hadir atau pulang belum diisi
       if (status.toLowerCase() !== 'hadir' || !pulang) continue;
 
-      // Parse jam pulang ke objek Date hari ini
-      let jamPulang;
-      if (pulang instanceof Date) {
-        jamPulang = new Date(
-          now.getFullYear(), now.getMonth(), now.getDate(),
-          pulang.getHours(), pulang.getMinutes(), 0
-        );
-      } else if (typeof pulang === 'string' && pulang.includes(':')) {
-        const [h, m] = pulang.split(':');
-        jamPulang = new Date(
-          now.getFullYear(), now.getMonth(), now.getDate(),
-          parseInt(h), parseInt(m), 0
-        );
-      } else {
+      // Parse jam pulang
+      const pulangHM = _extractHM(pulang);
+      if (!pulangHM) {
         Logger.log('❌ Format pulang tidak valid: ' + pulang + ' baris ' + row);
         continue;
       }
 
-      // Koreksi jika jam pulang sudah lewat tengah malam
+      // Tentukan tanggal kalender dari event pulang:
+      //  - Baris hari ini → pulang event di hari ini
+      //  - Baris kemarin + pulang<masuk (lintas tengah malam) → pulang event di hari ini
+      //  - Baris kemarin + pulang>=masuk (day shift yg belum sempat dikunci) → pulang event di kemarin
+      let pulangDate;
+      if (isToday) {
+        pulangDate = today;
+      } else {
+        const masukHM = _extractHM(masuk);
+        if (masukHM) {
+          const pulangMins = pulangHM.h * 60 + pulangHM.m;
+          const masukMins  = masukHM.h  * 60 + masukHM.m;
+          pulangDate = (pulangMins < masukMins) ? today : yesterday;
+        } else {
+          pulangDate = yesterday;
+        }
+      }
+
+      const jamPulang = new Date(
+        pulangDate.getFullYear(), pulangDate.getMonth(), pulangDate.getDate(),
+        pulangHM.h, pulangHM.m, 0
+      );
+
+      // Koreksi jika jam pulang masih di masa depan (mis. diisi maju)
       if (jamPulang > now) {
         Logger.log('⏳ ' + nama + ' (baris ' + row + '): pulang masih di masa depan (' +
           Utilities.formatDate(jamPulang, CONFIG.TIMEZONE, 'HH:mm') + '), skip lock');

@@ -72,44 +72,26 @@ function getDataHariIni() {
     'atau hubungi HRD jika perlu pendaftaran akun baru.'
   );
 
-  const sheet = getSheetAktifDivisi(userInfo.divisi);
-  if (!sheet) throw new Error(
-    'Sheet divisi "' + userInfo.divisi + '" tidak ditemukan.\n' +
-    'Pastikan sheet bulan ini sudah dibuat oleh HRD.'
-  );
-
-  const today   = getToday();
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 4) throw new Error('Baris hari ini belum tersedia. Hubungi HRD.');
-
-  const data  = sheet.getRange(4, 1, lastRow - 3, TOTAL_COL).getValues();
-  let rowData = null;
-  let rowIdx  = -1;
-
-  for (let i = 0; i < data.length; i++) {
-    if (
-      isSameDate(data[i][0], today) &&
-      String(data[i][COL_NAMA - 1]).trim() === userInfo.nama
-    ) {
-      rowData = data[i];
-      rowIdx  = i + 4; // 1-indexed sheet row
-      break;
-    }
-  }
-  if (!rowData) throw new Error(
+  // Cari baris target — hari ini, atau fallback ke baris kemarin
+  // jika shift lintas malam (kemarin masuk, hari ini belum masuk lagi).
+  const target = _findRowForUser(userInfo);
+  if (!target) throw new Error(
     'Baris hari ini belum tersedia.\n' +
     'Kemungkinan trigger belum jalan. Hubungi HRD.'
   );
 
+  const { sheet, rowIdx, rowData, refDate, isYesterdayShift } = target;
   const pulangVal = rowData[COL_PULANG - 1];
 
   return {
     nama   : userInfo.nama,
     divisi : userInfo.divisi,
     email  : email,
-    tanggal: Utilities.formatDate(today, CONFIG.TIMEZONE, 'dd/MM/yyyy'),
+    tanggal: Utilities.formatDate(refDate, CONFIG.TIMEZONE, 'dd/MM/yyyy'),
     hari   : String(rowData[COL_HARI - 1]),
     rowIdx : rowIdx,
+    sheetName        : sheet.getName(),
+    isYesterdayShift : isYesterdayShift,
     locked : _webIsLocked(pulangVal),
     fields : {
       status          : String(rowData[COL_STATUS       - 1] || ''),
@@ -126,6 +108,87 @@ function getDataHariIni() {
     plan        : String(rowData[COL_PLAN - 1] || ''),
     planOptions : CONFIG.PLAN_JAM,
   };
+}
+
+// ── _findRowForUser — Tentukan baris yang harus dipakai user ──────────
+// Prioritas:
+//   1. Baris hari ini, JIKA sudah ada jam masuk → shift hari ini (default).
+//   2. Baris kemarin, JIKA ada jam masuk DAN belum ada jam pulang
+//      → user shift lintas malam, akan clock-out kemarin punya baris.
+//   3. Baris hari ini (apa adanya) — fallback default jika kemarin tidak applicable.
+// Return: { sheet, rowIdx, rowData, refDate, isYesterdayShift } atau null.
+function _findRowForUser(userInfo) {
+  const today     = getToday();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12, 0, 0);
+
+  const todaySheet = getSheetAktifDivisi(userInfo.divisi);
+  const todayHit   = todaySheet ? _findRowByDateAndName(todaySheet, today, userInfo.nama) : null;
+
+  // Kasus 1: baris hari ini sudah ada DAN masuk sudah diisi → pakai hari ini.
+  const hasMasukToday = todayHit && _isFilled(todayHit.rowData[COL_MASUK - 1]);
+  if (hasMasukToday) {
+    return { sheet: todaySheet, rowIdx: todayHit.rowIdx, rowData: todayHit.rowData,
+             refDate: today, isYesterdayShift: false };
+  }
+
+  // Kasus 2: cek baris kemarin — shift lintas malam.
+  const yesterdaySheet = getSheetAktifDivisi(userInfo.divisi, yesterday);
+  if (yesterdaySheet) {
+    const yHit = _findRowByDateAndName(yesterdaySheet, yesterday, userInfo.nama);
+    if (yHit) {
+      const hasMasukYday  = _isFilled(yHit.rowData[COL_MASUK  - 1]);
+      const hasPulangYday = _isFilled(yHit.rowData[COL_PULANG - 1]);
+      if (hasMasukYday && !hasPulangYday) {
+        return { sheet: yesterdaySheet, rowIdx: yHit.rowIdx, rowData: yHit.rowData,
+                 refDate: yesterday, isYesterdayShift: true };
+      }
+    }
+  }
+
+  // Kasus 3: pakai baris hari ini apa adanya (bisa kosong-kosongan).
+  if (todayHit) {
+    return { sheet: todaySheet, rowIdx: todayHit.rowIdx, rowData: todayHit.rowData,
+             refDate: today, isYesterdayShift: false };
+  }
+
+  return null;
+}
+
+// ── _findRowByDateAndName — Cari baris dengan tanggal & nama tertentu ──
+function _findRowByDateAndName(sheet, refDate, nama) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 4) return null;
+  const data = sheet.getRange(4, 1, lastRow - 3, TOTAL_COL).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (isSameDate(data[i][0], refDate) &&
+        String(data[i][COL_NAMA - 1]).trim() === nama) {
+      return { rowIdx: i + 4, rowData: data[i] };
+    }
+  }
+  return null;
+}
+
+function _isFilled(v) {
+  return v !== '' && v !== null && v !== undefined;
+}
+
+// ── _resolveTargetSheet — Pilih sheet target untuk submit ────────────
+// requestedName boleh kosong → fallback ke sheet hari ini.
+// Jika diisi, harus cocok dengan sheet divisi hari ini ATAU kemarin
+// (untuk shift lintas malam). Selain itu ditolak agar client tidak bisa
+// menulis ke sheet sembarangan.
+function _resolveTargetSheet(divisi, requestedName) {
+  const todaySheet = getSheetAktifDivisi(divisi);
+  if (!requestedName) return todaySheet;
+
+  if (todaySheet && todaySheet.getName() === requestedName) return todaySheet;
+
+  const today     = getToday();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12, 0, 0);
+  const yesterdaySheet = getSheetAktifDivisi(divisi, yesterday);
+  if (yesterdaySheet && yesterdaySheet.getName() === requestedName) return yesterdaySheet;
+
+  throw new Error('Sheet tidak valid untuk divisi Anda.');
 }
 
 // ── submitAbsensi — Simpan input form ke sheet ────────────────────────
@@ -178,7 +241,10 @@ function _doSubmitAbsensi(email, payload) {
   }
   if (!userInfo) throw new Error('Akses ditolak.');
 
-  const sheet = getSheetAktifDivisi(userInfo.divisi);
+  // Pilih sheet target: hari ini (default) atau kemarin jika client meminta
+  // (shift lintas malam). Sheet name dari client harus cocok dengan salah
+  // satu sheet divisi user — anti tampering.
+  const sheet = _resolveTargetSheet(userInfo.divisi, payload.sheetName);
   if (!sheet) throw new Error('Sheet divisi tidak ditemukan.');
 
   const row = payload.rowIdx;

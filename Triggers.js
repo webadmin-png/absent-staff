@@ -166,33 +166,36 @@ function onOpen() {
   const showAdmin = !email || adminList.includes(email);
 
   // Menu staf — semua pengguna
-  ui.createMenu('📋 Absensi Saya')
-    .addItem('📍 Ke baris saya hari ini',    'keBarisHariIni')
-    .addSeparator()
-    .addItem('✅ Stamp MASUK',               'stampMasuk')
-    .addItem('☕ Stamp ISTIRAHAT 1 MULAI',   'stampIst1Mulai')
-    .addItem('▶ Stamp ISTIRAHAT 1 SELESAI',  'stampIst1Selesai')
-    .addItem('☕ Stamp ISTIRAHAT 2 MULAI',   'stampIst2Mulai')
-    .addItem('▶ Stamp ISTIRAHAT 2 SELESAI',  'stampIst2Selesai')
-    .addItem('🏁 Stamp PULANG',              'stampPulang')
-    .addSeparator()
-    .addItem('📊 Rekap absensi saya',        'cekRekapSaya')
-    .addToUi();
+  // ui.createMenu('📋 Absensi Saya')
+  //   .addItem('📍 Ke baris saya hari ini',    'keBarisHariIni')
+  //   .addSeparator()
+  //   .addItem('✅ Stamp MASUK',               'stampMasuk')
+  //   .addItem('☕ Stamp ISTIRAHAT 1 MULAI',   'stampIst1Mulai')
+  //   .addItem('▶ Stamp ISTIRAHAT 1 SELESAI',  'stampIst1Selesai')
+  //   .addItem('☕ Stamp ISTIRAHAT 2 MULAI',   'stampIst2Mulai')
+  //   .addItem('▶ Stamp ISTIRAHAT 2 SELESAI',  'stampIst2Selesai')
+  //   .addItem('🏁 Stamp PULANG',              'stampPulang')
+  //   .addSeparator()
+  //   .addItem('📊 Rekap absensi saya',        'cekRekapSaya')
+  //   .addToUi();
 
   if (showAdmin) {
     ui.createMenu('⚙️ Admin')
       .addItem('⚙️ Buka Settings',                    'bukaSettings')
       .addSeparator()
-      .addItem('📋 Generate Template Rekap',           'generateTemplateRekap')
-      .addItem('📅 Data Rentang Tanggal',              'buatSheetRentang')
-      .addItem('📅 Buat Sheet Bulan Baru (manual)',    'buatSheetBulanBaru')
+      .addItem('📅 Buat Sheet Bulan Baru',    'buatSheetBulanBaru')
+      .addItem('➕ Append Hari Ini (manual)',          'appendHariIni')
+      .addItem('🔄 Perbarui Rumus L–O (Backfill)',     'perbaruiRumusSemuaBaris')
       .addSeparator()
-      .addItem('📅 Append Hari Ini (manual)',          'appendHariIni')
+      .addItem('📋 Rekap Per Bulan (Auto-Formula)',           'generateTemplateRekap')
+      .addItem('📅 Tarik Data Lintas Bulan',              'buatSheetRentang')
       .addItem('➕ Append Tanggal Baru',               'appendTanggalBaru')
-      .addItem('⚠️ Cek Belum Isi Pulang (manual)',    'cekBelumIsiPulang')
-      .addItem('🔒 Lock Baris Sudah Pulang (manual)', 'lockBarisWebSudahPulang')
-      .addSeparator()
-      .addItem('👤 Perbarui Akses Admin',             'perbaruiEditorAdmin')
+      .addItem('⏰ Setup Trigger',               'setupTrigger')
+      
+      // .addItem('⚠️ Cek Belum Isi Pulang (manual)',    'cekBelumIsiPulang')
+      // .addItem('🔒 Lock Baris Sudah Pulang (manual)', 'lockBarisWebSudahPulang')
+      // .addSeparator()
+      // .addItem('👤 Perbarui Akses Admin',             'perbaruiEditorAdmin')
       .addToUi();
   }
 
@@ -201,8 +204,8 @@ function onOpen() {
     const ownerEmail = SpreadsheetApp.getActiveSpreadsheet().getOwner().getEmail().trim().toLowerCase();
     if (email && email === ownerEmail) {
       ui.createMenu('🔑 Owner')
-        .addItem('🔧 Setup Trigger',    'setupTrigger')
-        .addItem('🚀 Setup Awal',       'setupAwal')
+        .addItem('🔧 Setup Trigger',          'setupTrigger')
+        .addItem('🚀 Setup Awal',                'setupAwal')
         .addItem('⚙️ Inisialisasi Settings', 'setupSettings')
         .addToUi();
     }
@@ -226,9 +229,9 @@ function setupTrigger() {
   ScriptApp.newTrigger('appendHariIni')
     .timeBased().everyDays(1).atHour(6).create();
 
-  // Setiap hari jam JAM_REMINDER — reminder staf yang belum isi pulang
-  ScriptApp.newTrigger('cekBelumIsiPulang')
-    .timeBased().everyDays(1).atHour(CONFIG.JAM_REMINDER).create();
+  // // Setiap hari jam JAM_REMINDER — reminder staf yang belum isi pulang
+  // ScriptApp.newTrigger('cekBelumIsiPulang')
+  //   .timeBased().everyDays(1).atHour(CONFIG.JAM_REMINDER).create();
 
   // Setiap jam — kunci baris 30 menit setelah jam pulang diisi
   ScriptApp.newTrigger('lockBarisWebSudahPulang')
@@ -248,7 +251,6 @@ function setupTrigger() {
       '✅ Trigger aktif!\n\n' +
       '• Tgl 1 tiap bulan 05:00 — buat sheet bulan baru\n' +
       '• Setiap hari 06:00 — append baris hari ini otomatis\n' +
-      '• Setiap hari ' + CONFIG.JAM_REMINDER + ':00 — reminder belum isi pulang\n' +
       '• Setiap jam — lock baris 30 menit setelah pulang\n' +
       '• onEdit — guard proteksi per email'
     );
@@ -281,4 +283,8 @@ function setupAwal() {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
     Logger.log('Error setupAwal: ' + e.message);
   }
+}
+
+function hapusSemuaTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
 }
