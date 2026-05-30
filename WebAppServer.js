@@ -44,10 +44,22 @@ function getDataHariIni() {
     'Pastikan Anda sudah login dan Web App sudah di-redeploy setelah update manifest.'
   );
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) throw new Error('Spreadsheet tidak ditemukan. Pastikan script terikat ke spreadsheet.');
-  const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
-  if (!master) throw new Error('Sheet Master_Data tidak ditemukan.');
+  // const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // if (!ss) throw new Error('Spreadsheet tidak ditemukan. Pastikan script terikat ke spreadsheet.');
+  // const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
+  // if (!master) throw new Error('Sheet Master_Data tidak ditemukan.');
+  var _who = '?';
+  try { _who = (Session.getEffectiveUser().getEmail() || '(kosong)') + ' / ' + (Session.getActiveUser().getEmail() || '(kosong)'); } catch (e) { _who = 'err:' + e.message; }
+  var _id = '(belum)';
+  var ss, master;
+  try {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+    _id = ss ? ss.getId() : 'NULL';
+    master = ss.getSheetByName(CONFIG.SHEET_MASTER);
+    master.getRange('A4').getValue();
+  } catch (e) {
+    throw new Error('🔍 DIAG | sebagai: ' + _who + ' | sheetId: ' + _id + ' | err: ' + e.message);
+  }
 
   // Cari user di Master_Data — divisi di-uppercase agar cocok dengan nama sheet
   const masterRows = master.getRange('A4:D200').getValues();

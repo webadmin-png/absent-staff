@@ -2,22 +2,21 @@
 // APPEND.JS — Penambahan baris harian + tampilan sheet
 // TEST 3
 // Berisi:
-//   appendHariIni()    — inti fungsi harian: tambah baris staf ke sheet divisi
-//   highlightHariIni() — warnai baris hari ini (kuning) dan lewat (abu)
-//   groupByToday()     — collapse baris hari lama, buka hari ini
+//   appendHariIni()      — append baris staf untuk hari ini (jaring pengaman 06:00)
+//   appendBesok()        — append baris staf untuk besok (trigger 22:00)
+//   _appendUntukTanggal()— inti append untuk satu tanggal (dipakai keduanya)
+//   highlightHariIni()   — warnai baris hari ini (kuning) dan lewat (abu)
+//   groupByToday()       — collapse baris hari lama, buka hari ini
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── appendHariIni — Core function harian ──────────────────────────────
-// Dipanggil otomatis pukul 06:00 via trigger, atau manual oleh HRD.
-// Untuk setiap divisi:
-//   1. Ambil daftar staf aktif dari Master_Data
-//   2. Cek duplikat (skip jika hari ini sudah ada)
-//   3. Append baris kosong per staf dengan formula L–O
-//   4. Pasang validasi dan proteksi baris baru
+// ── appendHariIni — Append baris staf untuk HARI INI ──────────────────
+// Dipanggil otomatis pukul 06:00 via trigger (jaring pengaman), atau manual
+// oleh HRD. Inti logikanya ada di _appendUntukTanggal(); di sini hanya guard
+// admin, lock anti-paralel, dan notifikasi UI.
 function appendHariIni() {
   _requireAdmin();
 
-  // Lock: cegah eksekusi paralel (trigger 06:00 + admin manual klik bersamaan)
+  // Lock: cegah eksekusi paralel (trigger + admin manual klik bersamaan)
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     Logger.log('⚠ appendHariIni: tidak bisa acquire lock dalam 30s — skip.');
@@ -25,16 +24,88 @@ function appendHariIni() {
   }
 
   try {
-    const ss     = SpreadsheetApp.getActiveSpreadsheet();
-    const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
-    if (!master) {
-      Logger.log('❌ Master_Data tidak ditemukan.');
-      return;
+    const r = _appendUntukTanggal(getToday());
+    try {
+      SpreadsheetApp.getUi().alert(
+        '✅ Append hari ini selesai!\n' +
+        r.tglStr + ' (' + r.namaHari + ')\n\n' +
+        r.hasil.join('\n')
+      );
+    } catch(e) {
+      // Dipanggil dari trigger — tidak ada UI
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── appendBesok — Append baris staf untuk BESOK (hari ini + 1) ─────────
+// Dipanggil otomatis pukul 22:00 via trigger, atau manual oleh HRD.
+// Tujuannya: baris untuk esok hari sudah tersedia SEBELUM tengah malam,
+// sehingga staf shift malam/dini hari (akses 00:00–06:00) tidak menemui
+// error "Baris hari ini belum tersedia" di web app.
+//
+// Jika besok menyeberang ke bulan baru, sheet bulan itu mungkin belum ada
+// (trigger buatSheetBulanBaru baru jalan tanggal 1 jam 05:00). Karena itu
+// kita pastikan dulu sheet bulan target dibuat sebelum append.
+function appendBesok() {
+  _requireAdmin();
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    Logger.log('⚠ appendBesok: tidak bisa acquire lock dalam 30s — skip.');
+    return;
+  }
+
+  try {
+    const today    = getToday();
+    const tomorrow = new Date(
+      today.getFullYear(), today.getMonth(), today.getDate() + 1, 12, 0, 0
+    );
+
+    // Lintas bulan → pastikan sheet bulan besok ada lebih dulu.
+    if (tomorrow.getMonth() !== today.getMonth()
+        || tomorrow.getFullYear() !== today.getFullYear()) {
+      const dibuat = _buatSheetBulanUntuk(tomorrow);
+      Logger.log('appendBesok: siapkan sheet bulan baru →\n' + dibuat.join('\n'));
+    }
+
+    const r = _appendUntukTanggal(tomorrow);
+    try {
+      SpreadsheetApp.getUi().alert(
+        '✅ Append besok selesai!\n' +
+        r.tglStr + ' (' + r.namaHari + ')\n\n' +
+        r.hasil.join('\n')
+      );
+    } catch(e) {
+      // Dipanggil dari trigger — tidak ada UI
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── _appendUntukTanggal — Inti append baris untuk satu tanggal ────────
+// Dipakai bersama oleh appendHariIni() (target = hari ini) dan appendBesok()
+// (target = besok). Untuk tiap divisi:
+//   1. Ambil daftar staf aktif dari Master_Data
+//   2. Cek duplikat (skip jika tanggal target sudah ada di sheet)
+//   3. Append baris kosong per staf dengan formula L–O
+//   4. Pasang validasi dan proteksi baris baru
+// CATATAN: tidak melakukan guard admin / lock — itu tanggung jawab pemanggil.
+// Return: { tglStr, namaHari, hasil[] } untuk notifikasi UI.
+function _appendUntukTanggal(targetDate) {
+  const ss     = SpreadsheetApp.getActiveSpreadsheet();
+  const master = ss.getSheetByName(CONFIG.SHEET_MASTER);
+  if (!master) {
+    Logger.log('❌ Master_Data tidak ditemukan.');
+    return { tglStr: '', namaHari: '', hasil: ['❌ Master_Data tidak ditemukan.'] };
   }
 
   const today    = getToday();
-  const todayStr = Utilities.formatDate(today, CONFIG.TIMEZONE, 'dd/MM/yyyy');
-  const namaHari = Utilities.formatDate(today, CONFIG.TIMEZONE, 'EEEE');
+  const isToday  = isSameDate(targetDate, today);
+  const tglStr   = Utilities.formatDate(targetDate, CONFIG.TIMEZONE, 'dd/MM/yyyy');
+  const namaHari = Utilities.formatDate(targetDate, CONFIG.TIMEZONE, 'EEEE');
 
   // Ambil semua staf aktif
   const masterData = master.getRange('A4:D200').getValues()
@@ -45,7 +116,7 @@ function appendHariIni() {
 
   if (masterData.length === 0) {
     Logger.log('Tidak ada staf aktif di Master_Data.');
-    return;
+    return { tglStr, namaHari, hasil: ['⚠ Tidak ada staf aktif di Master_Data'] };
   }
 
   // Kelompokkan per divisi (case-insensitive)
@@ -59,10 +130,17 @@ function appendHariIni() {
     });
   }
 
+  // Warna baris sesuai posisi tanggal: kuning kalau hari ini, muted kalau
+  // bukan (mis. baris besok yang dibuat malam ini). highlightHariIni() akan
+  // mewarnai ulang menjadi kuning saat tanggal itu benar-benar tiba.
+  const bgLocked  = isToday ? '#FFF9C4' : '#F1EFE8';
+  const bgEdit    = isToday ? '#FFF9C4' : '#FFFFFF';
+  const bgFormula = isToday ? '#FFF9C4' : '#EEEDFE';
+
   const hasil = [];
 
   for (const divisi of CONFIG.DIVISI) {
-    const sheet = getSheetAktifDivisi(divisi);
+    const sheet = getSheetAktifDivisi(divisi, targetDate);
     if (!sheet) {
       hasil.push('⚠ ' + divisi + ': sheet tidak ditemukan');
       continue;
@@ -74,31 +152,36 @@ function appendHariIni() {
       continue;
     }
 
-    // Hapus proteksi hari lalu sebelum append — hemat kuota protect Google Sheets
-    const hapus = _bersihkanProteksiLama(sheet, today);
-    if (hapus > 0) Logger.log('🗑 ' + divisi + ': hapus ' + hapus + ' proteksi hari lalu');
+    // Konsolidasi proteksi hari lampau — HANYA saat append hari ini.
+    // Untuk tanggal masa depan (appendBesok), "sebelum target" mencakup baris
+    // hari ini yang TIDAK boleh ikut dikunci. Konsolidasi tetap berjalan harian
+    // lewat appendHariIni jam 06:00.
+    if (isToday) {
+      const hapus = _bersihkanProteksiLama(sheet, today);
+      if (hapus > 0) Logger.log('🗑 ' + divisi + ': hapus ' + hapus + ' proteksi hari lalu');
+    }
 
-    // Cegah duplikat — skip jika hari ini sudah ada di sheet
+    // Cegah duplikat — skip jika tanggal target sudah ada di sheet
     const existingData = sheet.getLastRow() > 3
       ? sheet.getRange(4, 1, sheet.getLastRow() - 3, 1).getValues()
       : [];
 
     const sudahAda = existingData.some(r => {
       const tgl = r[0];
-      return tgl instanceof Date && isSameDate(tgl, today);
+      return tgl instanceof Date && isSameDate(tgl, targetDate);
     });
 
     if (sudahAda) {
-      hasil.push('⚠ ' + divisi + ': hari ini sudah ada — skip');
+      hasil.push('⚠ ' + divisi + ': ' + tglStr + ' sudah ada — skip');
       continue;
     }
 
     // Siapkan baris baru (semua kolom editable dikosongkan)
     const newRows = staf.map(s => [
-      today,    // A: Tanggal
-      namaHari, // B: Hari
-      s.nama,   // C: Nama
-      s.email,  // D: Email
+      targetDate, // A: Tanggal
+      namaHari,   // B: Hari
+      s.nama,     // C: Nama
+      s.email,    // D: Email
       '', '', '', '', '', '', '',  // E–K: diisi staf
       '', '', '', '',              // L–O: formula (diset di bawah)
       '', '',                      // P–Q: admin only
@@ -117,21 +200,21 @@ function appendHariIni() {
 
     // Warna kolom
     sheet.getRange(insertAt, 1,  newRows.length, 4)
-      .setBackground('#FFF9C4').setFontColor('#5F5E5A');  // A:D terkunci
+      .setBackground(bgLocked).setFontColor('#5F5E5A');  // A:D terkunci
     sheet.getRange(insertAt, 5,  newRows.length, 7)
-      .setBackground('#FFF9C4').setFontColor('#2C2C2A');  // E:K editable
+      .setBackground(bgEdit).setFontColor('#2C2C2A');    // E:K editable
     sheet.getRange(insertAt, 12, newRows.length, 4)
-      .setBackground('#FFF9C4').setFontColor('#534AB7').setFontWeight('bold'); // L:O formula
+      .setBackground(bgFormula).setFontColor('#534AB7').setFontWeight('bold'); // L:O formula
     sheet.getRange(insertAt, 16, newRows.length, 2)
-      .setBackground('#FFF9C4').setFontColor('#2C2C2A');  // P:Q admin
+      .setBackground(bgEdit).setFontColor('#2C2C2A');    // P:Q admin
     sheet.getRange(insertAt, COL_KETERANGAN, newRows.length, 1)
-      .setBackground('#FFF9C4').setFontColor('#2C2C2A');  // R: Keterangan
+      .setBackground(bgEdit).setFontColor('#2C2C2A');    // R: Keterangan
     sheet.getRange(insertAt, COL_PLAN, newRows.length, 1)
-      .setBackground('#FFF9C4').setFontColor('#085041').setFontWeight('bold'); // S: Plan
+      .setBackground(bgFormula).setFontColor('#085041').setFontWeight('bold'); // S: Plan
     sheet.getRange(insertAt, COL_DEVICE, newRows.length, 1)
-      .setBackground('#FFF9C4').setFontColor('#2C2C2A');                       // T: Device
+      .setBackground(bgEdit).setFontColor('#2C2C2A');    // T: Device
     sheet.getRange(insertAt, COL_TELAT, newRows.length, 2)
-      .setBackground('#FFF9C4').setFontColor('#E65100');                       // U:V Catatan Telat/Pulang Awal
+      .setBackground(bgEdit).setFontColor('#E65100');    // U:V Catatan Telat/Pulang Awal
 
     // Border
     sheet.getRange(insertAt, 1, newRows.length, TOTAL_COL)
@@ -151,27 +234,16 @@ function appendHariIni() {
     proteksiBarisBaru(sheet, divisi, insertAt, newRows.length);
 
     hasil.push('✓ ' + divisi + ' (' + sheet.getName() + '): ' +
-               staf.length + ' staf — ' + todayStr);
-    Logger.log('Append selesai: ' + divisi + ' — ' + todayStr);
+               staf.length + ' staf — ' + tglStr);
+    Logger.log('Append selesai: ' + divisi + ' — ' + tglStr);
   }
 
   groupByToday();
   highlightHariIni();
 
-  Logger.log('appendHariIni selesai: ' + todayStr + '\n' + hasil.join('\n'));
+  Logger.log('_appendUntukTanggal selesai: ' + tglStr + '\n' + hasil.join('\n'));
 
-  try {
-    SpreadsheetApp.getUi().alert(
-      '✅ Append hari ini selesai!\n' +
-      todayStr + ' (' + namaHari + ')\n\n' +
-      hasil.join('\n')
-    );
-  } catch(e) {
-    // Dipanggil dari trigger — tidak ada UI
-  }
-  } finally {
-    lock.releaseLock();
-  }
+  return { tglStr, namaHari, hasil };
 }
 
 // ── appendTanggalBaru — Append hari berikutnya setelah tanggal terakhir ─
@@ -371,6 +443,15 @@ function highlightHariIni() {
     for (let r = 4; r <= lastRow; r++) {
       const val = data[r - 1][0];
       if (!val || !(val instanceof Date)) continue;
+
+      // Hari Minggu → seluruh baris merah. Dicek paling awal supaya menimpa
+      // warna kuning (hari ini) / abu (lewat). Kolom B menyimpan 'Sunday'.
+      const hari = String(data[r - 1][1]).trim();
+      if (hari === 'Sunday') {
+        sheet.getRange(r, 1, 1, TOTAL_COL)
+          .setBackground('#FFCDD2').setFontColor('#B71C1C');
+        continue;
+      }
 
       if (isSameDate(val, today)) {
         sheet.getRange(r, 1,  1, 4).setBackground('#FFF9C4');

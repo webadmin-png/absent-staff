@@ -11,11 +11,11 @@
 var CONFIG = {
   // ── Struktural — jangan ubah tanpa deploy ulang ───────────────────
   SHEET_MASTER : 'Master_Data',
-  DIVISI       : ['STAFF - TESTING'],
+  DIVISI        : ['STAFF - TESTING'],
 
   // ID Google Spreadsheet khusus Settings (satu file untuk semua divisi).
   // Isi setelah Owner menjalankan 🔑 Owner → Inisialisasi Settings.
-  SETTINGS_SPREADSHEET_ID : '1J936-7vEejkvIsxUjUGA7CJOIlrSB9tOoxs7qpSKGx0',
+  SETTINGS_SPREADSHEET_ID : '1AuKqCKN-K_T4j1ALmn_cg6LOZsa4vrQNrogBMAAqtu4',
   NAMA_INSTANSI   : 'PT InFashion',
   TIMEZONE        : 'Asia/Makassar', // WITA (UTC+8)
 
@@ -28,7 +28,8 @@ var CONFIG = {
   ADMIN_EMAILS : [
     'webadmin@wooden-ships.com',
     'hrd@pt-infashion.com',
-    'web@pt-infashion.com'
+    'web@pt-infashion.com',
+    'wsabsent@gmail.com'
   ],
 
   JAM_REMINDER       : 17,

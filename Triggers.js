@@ -54,6 +54,27 @@ function onEditInstalled(e) {
     return;
   }
 
+  // Deteksi email user yang MENGEDIT.
+  // PENTING: ini installable trigger → script jalan atas nama OWNER (pemasang
+  // trigger), jadi Session.getEffectiveUser() SELALU mengembalikan owner (admin),
+  // bukan si pengedit. Itu bikin semua orang dikira admin. Untuk tahu siapa yang
+  // benar-benar mengedit, pakai e.user / Session.getActiveUser().
+  let emailUser = '';
+  try { emailUser = ((e.user && e.user.getEmail()) || '').trim().toLowerCase(); } catch(err) {}
+  if (!emailUser) {
+    try { emailUser = Session.getActiveUser().getEmail().trim().toLowerCase(); } catch(err) {}
+  }
+
+  // Admin boleh edit segalanya — DICEK DULU sebelum lock kolom struktural.
+  // Kalau tidak, admin akan kena alert "terkunci" saat edit kolom A–D / L
+  // karena guard di bawah ini akan return lebih dulu.
+  const isAdmin = CONFIG.ADMIN_EMAILS.map(e => e.toLowerCase()).includes(emailUser);
+  if (isAdmin) {
+    _maybeLogJamEdit(e, emailUser, sheet, row, col);
+    Logger.log('✓ Admin edit: ' + emailUser + ' baris ' + row);
+    return;
+  }
+
   // Kolom A–D terkunci untuk semua staf
   if (col < COL_EDIT_START) {
     e.range.setValue(e.oldValue !== undefined ? e.oldValue : '');
@@ -71,20 +92,6 @@ function onEditInstalled(e) {
   // Kolom di luar batas edit (seharusnya tidak ada, tapi sebagai safety)
   if (col > COL_EDIT_END) {
     e.range.setValue(e.oldValue !== undefined ? e.oldValue : '');
-    return;
-  }
-
-  // Deteksi email user — getEffectiveUser() di simple trigger, fallback getActiveUser()
-  let emailUser = Session.getEffectiveUser().getEmail().trim().toLowerCase();
-  if (!emailUser) {
-    emailUser = Session.getActiveUser().getEmail().trim().toLowerCase();
-  }
-
-  // Admin boleh edit segalanya
-  const isAdmin = CONFIG.ADMIN_EMAILS.map(e => e.toLowerCase()).includes(emailUser);
-  if (isAdmin) {
-    _maybeLogJamEdit(e, emailUser, sheet, row, col);
-    Logger.log('✓ Admin edit: ' + emailUser + ' baris ' + row);
     return;
   }
 
@@ -185,7 +192,9 @@ function onOpen() {
       .addSeparator()
       .addItem('📅 Buat Sheet Bulan Baru',    'buatSheetBulanBaru')
       .addItem('➕ Append Hari Ini (manual)',          'appendHariIni')
-      .addItem('🔄 Perbarui Rumus L–O (Backfill)',     'perbaruiRumusSemuaBaris')
+      .addItem('🌙 Append Besok (manual)',             'appendBesok')
+      // .addItem('🔄 Perbarui Rumus L–O (Backfill)',     'perbaruiRumusSemuaBaris')
+      // .addItem('🎨 Warnai Ulang Baris (Minggu = merah)', 'highlightHariIni')
       .addSeparator()
       .addItem('📋 Rekap Per Bulan (Auto-Formula)',           'generateTemplateRekap')
       .addItem('📅 Tarik Data Lintas Bulan',              'buatSheetRentang')
@@ -214,7 +223,8 @@ function onOpen() {
 
 // ── setupTrigger — Daftarkan semua trigger harian ─────────────────────
 // Hapus semua trigger lama, lalu buat ulang:
-//   06:00 → appendHariIni()     (append baris staf tiap pagi)
+//   22:00 → appendBesok()       (siapkan baris esok hari sebelum tengah malam)
+//   06:00 → appendHariIni()     (jaring pengaman: append baris staf tiap pagi)
 //   17:00 → cekBelumIsiPulang() (reminder staf yang belum isi pulang)
 //   onEdit → guard proteksi (installable, lebih reliable dari simple trigger)
 function setupTrigger() {
@@ -225,7 +235,14 @@ function setupTrigger() {
   ScriptApp.newTrigger('buatSheetBulanBaru')
     .timeBased().onMonthDay(1).atHour(5).create();
 
-  // Setiap hari jam 06:00 — append baris staf hari ini
+  // Setiap hari jam 22:00 — siapkan baris untuk BESOK agar staf shift malam/
+  // dini hari (akses 00:00–06:00) sudah punya baris sebelum tengah malam.
+  // Mencegah error "Baris hari ini belum tersedia" di web app.
+  ScriptApp.newTrigger('appendBesok')
+    .timeBased().everyDays(1).atHour(22).create();
+
+  // Setiap hari jam 06:00 — append baris staf hari ini (jaring pengaman kalau
+  // job 22:00 gagal; jika baris sudah dibuat semalam, otomatis di-skip)
   ScriptApp.newTrigger('appendHariIni')
     .timeBased().everyDays(1).atHour(6).create();
 
@@ -250,7 +267,8 @@ function setupTrigger() {
     SpreadsheetApp.getUi().alert(
       '✅ Trigger aktif!\n\n' +
       '• Tgl 1 tiap bulan 05:00 — buat sheet bulan baru\n' +
-      '• Setiap hari 06:00 — append baris hari ini otomatis\n' +
+      '• Setiap hari 22:00 — siapkan baris untuk BESOK\n' +
+      '• Setiap hari 06:00 — append baris hari ini (jaring pengaman)\n' +
       '• Setiap jam — lock baris 30 menit setelah pulang\n' +
       '• onEdit — guard proteksi per email'
     );

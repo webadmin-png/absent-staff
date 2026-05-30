@@ -338,13 +338,21 @@ function generateFullMonth() {
       const isToday   = tglNorm.getTime() === todayNorm.getTime();
       const isPastDay = tglNorm.getTime() < todayNorm.getTime();
 
+      // Hari Minggu → seluruh baris merah (konsisten dengan highlightHariIni).
+      // Dicek paling awal supaya menimpa warna kuning(hari ini)/abu(lewat)/putih.
+      if (isSunday) {
+        sheet.getRange(r, 1, 1, TOTAL_COL)
+          .setBackground('#FFCDD2').setFontColor('#B71C1C');
+        continue;
+      }
+
       let bgLocked, bgEdit, bgFormula;
       if (isToday) {
         bgLocked = bgEdit = bgFormula = '#FFF9C4';
       } else if (isPastDay) {
         bgLocked = '#F1EFE8'; bgEdit = '#F8F8F8'; bgFormula = '#EEEDFE';
       } else {
-        bgLocked = '#F1EFE8'; bgEdit = isSunday ? '#FDE8D8' : '#FFFFFF'; bgFormula = '#EEEDFE';
+        bgLocked = '#F1EFE8'; bgEdit = '#FFFFFF'; bgFormula = '#EEEDFE';
       }
       sheet.getRange(r, 1,  1, 4).setBackground(bgLocked).setFontColor('#5F5E5A');
       sheet.getRange(r, 5,  1, 7).setBackground(bgEdit).setFontColor('#2C2C2A');
@@ -974,6 +982,20 @@ function buatSheetRentang() {
   outSheet.getRange(4, 1,  500, 1).setNumberFormat('DD/MM/YYYY');
   outSheet.getRange(4, 6,  500, 6).setNumberFormat('HH:mm');     // F:K jam
   outSheet.getRange(4, 12, 500, 4).setNumberFormat('[h]:mm');    // L:O jam efektif
+
+  // Warna merah untuk baris hari Minggu. Data diisi lewat rumus QUERY (jumlah
+  // baris dinamis), jadi tidak bisa diwarnai manual — pakai conditional
+  // formatting yang otomatis berlaku saat kolom B (Hari) = "Sunday".
+  const sundayRange = outSheet.getRange('A4:T2000');
+  const sundayRule  = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=$B4="Sunday"')
+    .setBackground('#FFCDD2')
+    .setFontColor('#B71C1C')
+    .setRanges([sundayRange])
+    .build();
+  const rules = outSheet.getConditionalFormatRules();
+  rules.push(sundayRule);
+  outSheet.setConditionalFormatRules(rules);
 
   ui.alert(
     '✅ Sheet berhasil dibuat!\n\n' +

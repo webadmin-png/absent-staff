@@ -16,16 +16,16 @@ set -euo pipefail
 # ── Daftar divisi: "NAMA:scriptId" ──────────────────────────────────────
 # Tambah baris baru untuk setiap divisi baru
 TARGETS=(
-  "IF - STAFF - HR:1fusNRSgk7H5t-s8gd_oHL5dT1wt5SS65ZPBR83EuL6e30pj6xExr8dQf"
-  "IF - STAFF - WEB:1cSbrUTMAnOaJqrG1Ev5qjdgMnhV1JXWopI5qA4WBVvpIwh8eFRqprv_A"
-  "IF - STAFF - PPIC:1R1C65Rp76CL5By3KaiY-eK_lzfd_sXWlsHn9t6ZTtjS1dHd50JzkZk11"
-  "IF - STAFF - R&D:1mcPn439jC5Fv9MlnhRlJKc5X0XG5QcwZZMaQlD2B7AcHop55TEO_K9Ra"
-  "IF - STAMPER:1p6RQYf47xy3axaIOw3GPZ0weX2LieQQPa1aR8bT7424GFoQHg4INX-zO"
-  "IF - ST5:1KjdVt9XZrr5B-YhJ73xHkxfsPdrbxmV1VI7bZFu07H2WHO5snE29wj7z"
-  "IF - SATPAM:17pqHm0r5uo0ADAhXDbLQs4YrVRFkDlgzHozfrMEPzIuCBQlhR3yuSXh6"
-  "IF - MECHANIC:1-1db2_bQz86se8f2Y0IDMSYxvnuGvEYrUpZ_kHAEP0ntsv12tdu9t8rT"
-  "IF - CS:1EKASbK1OsM1Rs3HaK9Cz0aqb57k8PAjcbh8nMrHwBj9lqTBS2_nLgYG-"
-  "DEV:1lfIZETbtj2BL1v12vWFSpMroyabTEeqbEQQnqKiW7Uae5FYVW9MRoSP1"
+  "IF - STAFF - HR:13rbBtFNyiQSHUYtRY19jnH5EZcJ3iOclyvSJ-7Is6KFNLX0VOsADa3S2"
+  "IF - STAFF - WEB:1w_k-vX_Rlx9pN6VfIIVe5Ua553HLjyFjolovs1oRwA4M1AwGqYt9lLDQ"
+  "IF - STAFF - PPIC:1a9kCvIAlKNxd5SV4HEbMVGAQFwPM0rYXzHL64zdS8O_YolOgLvEl5ACo"
+  "IF - STAFF - R&D:1P5uhQ612M-XV9LBogZe9ohpzf1eiz-_2g-KVinRirBDPNi3ash6-ZA5p"
+  "IF - STAMPER:1bFfYmBvZSazWKQQrQt12Mtmcu2UCtJigImm0ADh60fehfrBd_KkET5kW"
+  "IF - ST5:1s_s45nl_XUVvu-BUs_HHc_XH1Tj2gKPWGFJvFljzD6TvzVZGYnvUWSKr"
+  "IF - SATPAM:10wYmcIGPcdmA-7QE4IRiFE32Iagw4Dq1Q0Bg9XxJQR3kyr6JrUnj63_e"
+  "IF - MECHANIC:1QipA_Nw5OwUUrK23aaiwnzj1Pv_4u-Ga4URJmwtjvyg9q7QRkSOdGVoZ"
+  "IF - CS:16eGjkM4ciAgvpTsvI5JH5XOKddtrShMvyKg4Uvgum-9Bg5lqD7fOHjx3"
+  "DEV:1FVp18iBxrTmIjS9MoC_f-DUGPn9odkYLmkkxu8Z9GhEcvOUQN5vb7xjH"
 )
 
 # ── Validasi ─────────────────────────────────────────────────────────────

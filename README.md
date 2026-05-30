@@ -8,7 +8,7 @@ Employees can log attendance directly via the Google Sheet menu or through a bro
 
 ## Features
 
-- **Daily auto-append** — new attendance rows for all active staff are created every day at 06:00
+- **Daily auto-append** — next-day attendance rows for all active staff are created every evening at 22:00 (so night/early-morning shifts already have a row before midnight), with a 06:00 safety-net run that fills anything missed
 - **Clock-in/out stamping** — staff record times via menu or Web App; email validation ensures each person can only edit their own row
 - **Automatic hour calculations** — effective hours, regular hours, OT Tier 1 & OT Tier 2 computed via spreadsheet formulas
 - **Sunday & public holiday support** — DOUBLE, SWAP, and HALF DAY SUNDAY modes
@@ -42,7 +42,8 @@ absent-staff/
 ### Data Flow
 
 ```
-06:00 → appendHariIni()      → new row per staff → formulas L–O → per-email protection
+22:00 → appendBesok()        → next-day row per staff → formulas L–O → per-email protection
+06:00 → appendHariIni()      → safety-net for today's rows (skips if already created)
 Staff → onEdit / Web App     → email validation  → write time   → formula auto-recalculates
 17:00 → cekBelumIsiPulang()  → scan today's rows → notify HR if departure missing
 Hourly → lockBarisWeb…()     → check 30-min threshold → lock row if passed
@@ -178,7 +179,9 @@ The script automatically swaps `.clasp.json` and pushes the codebase to each tar
 
 | Trigger | Schedule | Function |
 |---------|----------|----------|
-| Daily append | Every day at 06:00 | `appendHariIni()` |
+| Next-day append | Every day at 22:00 | `appendBesok()` |
+| Daily append (safety net) | Every day at 06:00 | `appendHariIni()` |
+| Monthly sheet | 1st of month at 05:00 | `buatSheetBulanBaru()` |
 | Evening reminder | Every day at 17:00 (configurable) | `cekBelumIsiPulang()` |
 | Auto-lock | Every hour | `lockBarisWebSudahPulang()` |
 

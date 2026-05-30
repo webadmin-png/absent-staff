@@ -9,14 +9,32 @@
 //   proteksiBarisBaru()    — proteksi range E:O per staf + P:Q khusus admin
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── buatSheetBulanBaru — Buat sheet divisi bulan ini ──────────────────
-// Buat struktur header (baris 1–3) + formatting untuk setiap divisi.
-// Baris data (staf) akan diisi oleh appendHariIni() setelah sheet dibuat.
+// ── buatSheetBulanBaru — Buat sheet divisi bulan berjalan + append hari ini ─
+// Dipanggil dari menu/owner dan trigger bulanan (tanggal 1 jam 05:00).
+// Membuat struktur sheet bulan ini lalu langsung append baris hari ini.
 function buatSheetBulanBaru() {
   _requireAdmin();
+  const hasil = _buatSheetBulanUntuk(new Date());
+
+  appendHariIni();
+
+  const msg = '✅ Sheet bulan baru selesai!\n\n' +
+    hasil.join('\n') + '\n\n' +
+    'Baris hari ini sudah di-append otomatis.\n' +
+    'Trigger harian akan append baris setiap pagi 06:00.';
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+}
+
+// ── _buatSheetBulanUntuk — Buat sheet divisi untuk bulan dari refDate ──
+// Membuat struktur header (baris 1–3) + formatting untuk setiap divisi pada
+// bulan yang ditunjuk refDate. Idempotent: skip divisi yang sheet-nya sudah
+// ada. TIDAK memanggil appendHariIni dan TIDAK menampilkan UI / guard admin —
+// itu tanggung jawab pemanggil (buatSheetBulanBaru, appendBesok).
+// Return: array string ringkasan hasil per divisi.
+function _buatSheetBulanUntuk(refDate) {
   const ss        = SpreadsheetApp.getActiveSpreadsheet();
-  const now       = new Date();
-  const namaBulan = Utilities.formatDate(now, CONFIG.TIMEZONE, 'MMM_yyyy');
+  const namaBulan = Utilities.formatDate(refDate, CONFIG.TIMEZONE, 'MMM_yyyy');
   const hasil     = [];
 
   for (const divisi of CONFIG.DIVISI) {
@@ -34,7 +52,7 @@ function buatSheetBulanBaru() {
     // Baris 1: Judul
     sheet.getRange(1, 1, 1, TOTAL_COL).merge()
       .setValue('ABSENSI ' + divisi + ' — ' +
-        Utilities.formatDate(now, CONFIG.TIMEZONE, 'MMMM yyyy').toUpperCase())
+        Utilities.formatDate(refDate, CONFIG.TIMEZONE, 'MMMM yyyy').toUpperCase())
       .setBackground('#0F6E56').setFontColor('#FFFFFF')
       .setFontSize(12).setFontWeight('bold')
       .setHorizontalAlignment('center').setVerticalAlignment('middle');
@@ -106,17 +124,10 @@ function buatSheetBulanBaru() {
     headerProt.removeEditors(headerProt.getEditors());
     headerProt.addEditor(Session.getEffectiveUser());
 
-    hasil.push('✓ ' + namaSheet + ' dibuat (kosong — baris diisi appendHariIni)');
+    hasil.push('✓ ' + namaSheet + ' dibuat (kosong — baris diisi appendHariIni/appendBesok)');
   }
 
-  appendHariIni();
-
-  const msg = '✅ Sheet bulan baru selesai!\n\n' +
-    hasil.join('\n') + '\n\n' +
-    'Baris hari ini sudah di-append otomatis.\n' +
-    'Trigger harian akan append baris setiap pagi 06:00.';
-  Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+  return hasil;
 }
 
 // ── setupProteksiMaster — Kunci sheet Master_Data ─────────────────────
@@ -320,6 +331,26 @@ function proteksiBarisBaru(sheet, divisi, startRow, numRows) {
   }
 
   Logger.log('✓ Proteksi P:Q (admin only) baris ' + startRow + '–' + endRow);
+
+  // Step 6: Proteksi A:D — kolom auto-fill (Tanggal, Hari, Nama, Email).
+  // Diisi otomatis oleh sistem; Web App tidak pernah menulis ke sini, jadi
+  // aman dikunci admin-only. Tanpa ini, staf bisa edit langsung di sheet
+  // (onEditInstalled tidak reliable untuk akun gmail beda — lihat Triggers.js).
+  const rangeAD = sheet.getRange(startRow, COL_TANGGAL, numRows, COL_EMAIL); // A:D
+  const protAD  = rangeAD.protect();
+  protAD.setDescription('Admin only — A:D auto-fill baris ' + startRow + '–' + endRow);
+  protAD.setWarningOnly(false);
+  protAD.removeEditors(protAD.getEditors());
+  protAD.addEditor(owner);
+  for (const adminEmail of CONFIG.ADMIN_EMAILS) {
+    try {
+      protAD.addEditor(adminEmail);
+    } catch(err) {
+      Logger.log('⚠ Gagal tambah admin A:D ' + adminEmail + ': ' + err.message);
+    }
+  }
+  Logger.log('✓ Proteksi A:D (admin only) baris ' + startRow + '–' + endRow);
+
   Logger.log(divisi + ': proteksi selesai — ' + berhasil + ' orang');
 }
 
